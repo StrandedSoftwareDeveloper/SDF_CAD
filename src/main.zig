@@ -21,8 +21,12 @@ const Vector3 = struct {
         return .{ .x = std.math.lerp(min.x, max.x, k.x), .y = std.math.lerp(min.y, max.y, k.y), .z = std.math.lerp(min.z, max.z, k.z) };
     }
 
-    pub fn divideScalar(self: *const Vector3, scalar: f32) Vector3 {
+    pub fn divideScalar(self: Vector3, scalar: f32) Vector3 {
         return .{ .x = self.x / scalar, .y = self.y / scalar, .z = self.z / scalar };
+    }
+
+    pub fn normalize(self: Vector3) Vector3 {
+        return self.divideScalar(self.length());
     }
 };
 
@@ -51,7 +55,7 @@ const Vector2 = struct {
     }
 
     pub fn max(a: Vector2, b: Vector2) Vector2 {
-        return .{.x = @max(a.x, b.x), .y = @max(a.y, b.y)};
+        return .{ .x = @max(a.x, b.x), .y = @max(a.y, b.y) };
     }
 
     pub fn addScalar(self: *const Vector2, scalar: f32) Vector2 {
@@ -65,28 +69,28 @@ const Vector2 = struct {
     pub fn rotate(self: *const Vector2, angle: f32) Vector2 {
         const startAngle: f32 = self.getAngle();
         const len: f32 = self.length();
-        return .{.x = std.math.cos(startAngle+angle) * len, .y = std.math.sin(startAngle+angle) * len};
+        return .{ .x = std.math.cos(startAngle + angle) * len, .y = std.math.sin(startAngle + angle) * len };
     }
 
     pub fn dot(a: Vector2, b: Vector2) f32 {
-        return a.x*b.x + a.y*b.y;
+        return a.x * b.x + a.y * b.y;
     }
 
     pub fn add(a: Vector2, b: Vector2) Vector2 {
-        return .{.x = a.x + b.x, .y = a.y + b.y};
+        return .{ .x = a.x + b.x, .y = a.y + b.y };
     }
 
     pub fn subtract(a: Vector2, b: Vector2) Vector2 {
-        return .{.x = a.x - b.x, .y = a.y - b.y};
+        return .{ .x = a.x - b.x, .y = a.y - b.y };
     }
 };
 
 // zig fmt: off
 
 const edgeConnections: [12][2]u8 = [12][2]u8 {
-		[2]u8{0,1}, [2]u8{1,2}, [2]u8{2,3}, [2]u8{3,0},
-		[2]u8{4,5}, [2]u8{5,6}, [2]u8{6,7}, [2]u8{7,4},
-		[2]u8{0,4}, [2]u8{1,5}, [2]u8{2,6}, [2]u8{3,7}
+        [2]u8{0,1}, [2]u8{1,2}, [2]u8{2,3}, [2]u8{3,0},
+        [2]u8{4,5}, [2]u8{5,6}, [2]u8{6,7}, [2]u8{7,4},
+        [2]u8{0,4}, [2]u8{1,5}, [2]u8{2,6}, [2]u8{3,7}
 };
 
 const triTable: [256][16]i8 = [256][16]i8{
@@ -382,14 +386,14 @@ fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min
 
 fn interp(edgeVertex1: Vector3, valueAtVertex1: f32, edgeVertex2: Vector3, valueAtVertex2: f32, threshold: f32) Vector3 {
     return .{
-        .x = (edgeVertex1.x + (threshold - valueAtVertex1) * (edgeVertex2.x - edgeVertex1.x)  / (valueAtVertex2 - valueAtVertex1)),
-        .y = (edgeVertex1.y + (threshold - valueAtVertex1) * (edgeVertex2.y - edgeVertex1.y)  / (valueAtVertex2 - valueAtVertex1)),
-        .z = (edgeVertex1.z + (threshold - valueAtVertex1) * (edgeVertex2.z - edgeVertex1.z)  / (valueAtVertex2 - valueAtVertex1)),
+        .x = (edgeVertex1.x + (threshold - valueAtVertex1) * (edgeVertex2.x - edgeVertex1.x) / (valueAtVertex2 - valueAtVertex1)),
+        .y = (edgeVertex1.y + (threshold - valueAtVertex1) * (edgeVertex2.y - edgeVertex1.y) / (valueAtVertex2 - valueAtVertex1)),
+        .z = (edgeVertex1.z + (threshold - valueAtVertex1) * (edgeVertex2.z - edgeVertex1.z) / (valueAtVertex2 - valueAtVertex1)),
     };
 }
 
 fn sphereSdf(pos: Vector3, spherePos: Vector3, radius: f32) f32 {
-    const newVector: Vector3 = .{.x = pos.x - spherePos.x, .y = pos.y - spherePos.y, .z = pos.z - spherePos.z};
+    const newVector: Vector3 = .{ .x = pos.x - spherePos.x, .y = pos.y - spherePos.y, .z = pos.z - spherePos.z };
     return newVector.length() - radius;
 }
 
@@ -398,42 +402,44 @@ fn circleSdf(pos: Vector2) f32 {
 }
 
 fn circleSdf3D(pos: Vector3) f32 {
-    const newVector: Vector2 = .{.x = pos.x, .y = pos.z};
+    const newVector: Vector2 = .{ .x = pos.x, .y = pos.z };
     const dist: f32 = circleSdf(newVector);
-    return std.math.sqrt(dist*dist + pos.y*pos.y);
+    return std.math.sqrt(dist * dist + pos.y * pos.y);
 }
 
 fn boxSdf(pos: Vector2) f32 {
-    const b: Vector2 = .{.x = 1.0, .y = 1.0};
-    const d: Vector2 = .{.x = @abs(pos.x) - b.x, .y = @abs(pos.y) - b.y};
-    return Vector2.length(Vector2.max(d, .{.x = 0.0, .y = 0.0})) + (@min(@max(d.x, d.y), 0.0));
+    const b: Vector2 = .{ .x = 1.0, .y = 1.0 };
+    const d: Vector2 = .{ .x = @abs(pos.x) - b.x, .y = @abs(pos.y) - b.y };
+    return Vector2.length(Vector2.max(d, .{ .x = 0.0, .y = 0.0 })) + (@min(@max(d.x, d.y), 0.0));
 }
 
 fn starSdf(pos: Vector2, r: f32, n: usize, m: f32) f32 {
     // next 4 lines can be precomputed for a given shape
-    const an: f32 = 3.141593/@as(f32, @floatFromInt(n));
-    const en: f32 = 3.141593/m;  // m is between 2 and n
-    const acs: Vector2 = .{.x = std.math.cos(an), .y = std.math.sin(an)};
-    const ecs: Vector2 = .{.x = std.math.cos(en), .y = std.math.sin(en)}; // ecs=vec2(0,1) for regular polygon
+    const an: f32 = 3.141593 / @as(f32, @floatFromInt(n));
+    const en: f32 = 3.141593 / m; // m is between 2 and n
+    const acs: Vector2 = .{ .x = std.math.cos(an), .y = std.math.sin(an) };
+    const ecs: Vector2 = .{ .x = std.math.cos(en), .y = std.math.sin(en) }; // ecs=vec2(0,1) for regular polygon
 
     // reduce to first sector
-    var bn: f32 = std.math.atan(pos.y / pos.x);//std.math.mod(f32, std.math.atan(pos.y / pos.x), 2.0*an) catch {unreachable;} - an;
-    bn = std.math.mod(f32, bn, 2.0*an) catch {unreachable;};
+    var bn: f32 = std.math.atan(pos.y / pos.x); //std.math.mod(f32, std.math.atan(pos.y / pos.x), 2.0*an) catch {unreachable;} - an;
+    bn = std.math.mod(f32, bn, 2.0 * an) catch {
+        unreachable;
+    };
     bn = bn - an;
 
     var p: Vector2 = pos;
     const len: f32 = p.length();
-    p = .{.x = std.math.cos(bn), .y = @abs(std.math.sin(bn))};
+    p = .{ .x = std.math.cos(bn), .y = @abs(std.math.sin(bn)) };
     p = p.multScalar(len);
 
     p = p.subtract(acs.multScalar(r));
     const thing0: f32 = -p.dot(ecs);
-    const thing1: f32 = r*acs.y/ecs.y;
+    const thing1: f32 = r * acs.y / ecs.y;
     const thing2: f32 = std.math.clamp(thing0, 0.0, thing1);
     const thing3: Vector2 = ecs.multScalar(thing2);
     //p = p.add(ecs.multScalar(std.math.clamp( -p.dot(ecs), 0.0, r*acs.y/ecs.y)));
     p = p.add(thing3);
-    return p.length()*std.math.sign(p.x);
+    return p.length() * std.math.sign(p.x);
 }
 
 fn starSdfWrapper(pos: Vector2) f32 {
@@ -442,28 +448,28 @@ fn starSdfWrapper(pos: Vector2) f32 {
 
 fn smin(a: f32, b: f32, k: f32) f32 {
     const newK = k * (1.0 / (1.0 - std.math.sqrt(0.5)));
-    const h: f32 = @max(newK - @abs(a-b), 0.0) / newK;
-    return @min(a, b) - newK*0.5*(1.0+h-std.math.sqrt(1.0-h*(h-2.0)));
+    const h: f32 = @max(newK - @abs(a - b), 0.0) / newK;
+    return @min(a, b) - newK * 0.5 * (1.0 + h - std.math.sqrt(1.0 - h * (h - 2.0)));
 }
 
 fn revolve(pos: Vector3, comptime primitive: fn (pos: Vector2) f32, o: f32) f32 {
-    const q: Vector2 = .{ .x = Vector2.length(Vector2{.x = pos.x, .y = pos.z}) - o, .y = pos.y };
+    const q: Vector2 = .{ .x = Vector2.length(Vector2{ .x = pos.x, .y = pos.z }) - o, .y = pos.y };
     return primitive(q);
 }
 
 fn extrude(pos: Vector3, comptime primitive: fn (pos: Vector2) f32, h: f32) f32 {
-    const d: f32 = primitive(.{.x = pos.x, .y = pos.y});
-    const w: Vector2 = .{.x = d, .y = @abs(pos.z) - h};
-    return @min(@max(w.x, w.y), 0.0) + Vector2.length(Vector2.max(w, .{.x = 0.0, .y = 0.0}));
+    const d: f32 = primitive(.{ .x = pos.x, .y = pos.y });
+    const w: Vector2 = .{ .x = d, .y = @abs(pos.z) - h };
+    return @min(@max(w.x, w.y), 0.0) + Vector2.length(Vector2.max(w, .{ .x = 0.0, .y = 0.0 }));
 }
 
 fn extrudeTwist(pos: Vector3, comptime primitive: fn (pos: Vector2) f32, h: f32, twist: f32) f32 {
-    var pos2D: Vector2 = .{.x = pos.x, .y = pos.y};
+    var pos2D: Vector2 = .{ .x = pos.x, .y = pos.y };
     pos2D = pos2D.rotate((pos.z / h) * std.math.degreesToRadians(twist / 2.0));
     const d: f32 = primitive(pos2D);
 
-    const w: Vector2 = .{.x = d, .y = @abs(pos.z) - h};
-    return @min(@max(w.x, w.y), 0.0) + Vector2.length(Vector2.max(w, .{.x = 0.0, .y = 0.0}));
+    const w: Vector2 = .{ .x = d, .y = @abs(pos.z) - h };
+    return @min(@max(w.x, w.y), 0.0) + Vector2.length(Vector2.max(w, .{ .x = 0.0, .y = 0.0 }));
 }
 
 fn sdf(pos: Vector3) f32 {
@@ -521,11 +527,11 @@ pub fn main() !void {
                     const e00: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i])), 0, 11)][0];
                     const e01: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i])), 0, 11)][1];
 
-                    const e10: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i+1])), 0, 11)][0];
-                    const e11: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i+1])), 0, 11)][1];
+                    const e10: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i + 1])), 0, 11)][0];
+                    const e11: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i + 1])), 0, 11)][1];
 
-                    const e20: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i+2])), 0, 11)][0];
-                    const e21: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i+2])), 0, 11)][1];
+                    const e20: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i + 2])), 0, 11)][0];
+                    const e21: u8 = edgeConnections[std.math.clamp(@as(usize, @intCast(edges[i + 2])), 0, 11)][1];
 
                     try verts.append(interp(points[e00], sdf(points[e00]), points[e01], sdf(points[e01]), threshold));
                     try verts.append(interp(points[e10], sdf(points[e10]), points[e11], sdf(points[e11]), threshold));
