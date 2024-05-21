@@ -29,15 +29,7 @@ fn writeSTL(writer: anytype, vertices: []const vec.Vector3) !void {
     }
 }
 
-fn interp(edgeVertex1: vec.Vector3, valueAtVertex1: f32, edgeVertex2: vec.Vector3, valueAtVertex2: f32, threshold: f32) vec.Vector3 {
-    return .{
-        .x = (edgeVertex1.x + (threshold - valueAtVertex1) * (edgeVertex2.x - edgeVertex1.x) / (valueAtVertex2 - valueAtVertex1)),
-        .y = (edgeVertex1.y + (threshold - valueAtVertex1) * (edgeVertex2.y - edgeVertex1.y) / (valueAtVertex2 - valueAtVertex1)),
-        .z = (edgeVertex1.z + (threshold - valueAtVertex1) * (edgeVertex2.z - edgeVertex1.z) / (valueAtVertex2 - valueAtVertex1)),
-    };
-}
-
-fn findSeedPoint(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3) f32) vec.Vector3 {
+fn findSurface(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3) f32) vec.Vector3 {
     var point: vec.Vector3 = startPoint;
     const epsilon: f32 = 0.01;
     for (0..100) |i| {
@@ -51,6 +43,18 @@ fn findSeedPoint(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3
     }
     return point;
 }
+
+fn initialTriangulation(seedPoint: vec.Vector3, front: *std.ArrayList(vec.Vector3)) !void {
+    const normal: vec.Vector3 = sdfUtils.calcNormal(seedPoint, sdf);
+    const tangent: vec.Vector3 = sdfUtils.calcTangent(normal).multScalar(0.1);
+    const bitangent: vec.Vector3 = sdfUtils.calcBitangent(normal, tangent).multScalar(0.1);
+
+    try front.append(seedPoint);
+    try front.append(findSurface(seedPoint.add(tangent), sdf));
+    try front.append(findSurface(seedPoint.add(bitangent), sdf));
+}
+
+fn pushFront() !void {}
 
 fn starSdfWrapper(pos: vec.Vector2) f32 {
     return sdfUtils.starSdf(pos, 0.5, 8, 3.0);
@@ -74,6 +78,10 @@ pub fn main() !void {
     var verts: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
     defer verts.deinit();
 
+    //Stack of fronts, where each front is an array of vertices
+    var fronts: std.ArrayList(std.ArrayList(vec.Vector3)) = std.ArrayList(std.ArrayList(vec.Vector3)).init(allocator);
+    defer fronts.deinit(); //Note: the internal arrays are garunteed to be deinitialized in the main array
+
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
@@ -87,19 +95,41 @@ pub fn main() !void {
     var pcg = std.rand.Pcg.init(10);
     const rng = pcg.random();
 
+    var initialFront: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
+    var startPoint: vec.Vector3 = .{ .x = 0.0, .y = 0.0, .z = 0.0 };
+    var seedPoint: vec.Vector3 = findSurface(startPoint, sdf);
+    try initialTriangulation(seedPoint, &initialFront);
+    try fronts.append(initialFront);
+
+    while (fronts.items.len > 0) {
+        const currentFront: std.ArrayList(vec.Vector3) = fronts.pop();
+
+        while (currentFront.items.len > 3) {
+            actualizeAngles(currentFront);
+            const pt: vec.Vector3 = pointWithMinAngle(currentFront);
+            const ptI: vec.Vector3 = selfIntersection(pt, currentFront);
+        }
+
+        for (currentFront.items) |vert| { //Move the last few verts into the main array
+            try verts.append(vert);
+        }
+        defer currentFront.deinit();
+    }
+
     for (0..10000) |i| {
         _ = i;
 
-        const startPoint: vec.Vector3 = .{ .x = rng.float(f32) * 2.0 - 1.0, .y = rng.float(f32) * 2.0 - 1.0, .z = rng.float(f32) * 2.0 - 1.0 };
-        const seedPoint: vec.Vector3 = findSeedPoint(startPoint, sdf);
+        startPoint = .{ .x = rng.float(f32) * 2.0 - 1.0, .y = rng.float(f32) * 2.0 - 1.0, .z = rng.float(f32) * 2.0 - 1.0 };
+        seedPoint = findSurface(startPoint, sdf);
+        if (seedPoint.z > 0.0) {
+            //continue;
+        }
 
-        const normal: vec.Vector3 = sdfUtils.calcNormal(seedPoint, sdf);
-        const tangent: vec.Vector3 = sdfUtils.calcTangent(normal).multScalar(0.2);
-        const bitangent: vec.Vector3 = sdfUtils.calcBitangent(normal, tangent).multScalar(0.2);
+        const NTB: vec.Mat3 = sdfUtils.calcNTB(seedPoint, sdf);
 
         try verts.append(seedPoint);
-        try verts.append(seedPoint.add(tangent));
-        try verts.append(seedPoint.add(bitangent));
+        try verts.append(findSurface(seedPoint.add(NTB.r1.multScalar(0.2)), sdf));
+        try verts.append(findSurface(seedPoint.add(NTB.r2.multScalar(0.2)), sdf));
 
         std.debug.print("{d:.3}, {d:.3}, {d:.3}: {d:.3}\n", .{ seedPoint.x, seedPoint.y, seedPoint.z, sdf(seedPoint) });
     }

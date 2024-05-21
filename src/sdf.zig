@@ -94,9 +94,40 @@ pub fn calcNormal(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec
 //Somewhat cursed way I figured out to calculate tangent and bitangent
 //Remember that the cross product of 2 vectors gives a vector that is perpendicular to both
 pub fn calcTangent(normal: vec.Vector3) vec.Vector3 {
-    return normal.cross(.{ .x = normal.x + 0.5, .y = normal.y, .z = normal.z }).normalize();
+    const tempVec: vec.Vector3 = .{ .x = std.math.tan(normal.x), .y = normal.y, .z = normal.z };
+    return normal.cross(tempVec).normalize();
 }
 
 pub fn calcBitangent(normal: vec.Vector3, tangent: vec.Vector3) vec.Vector3 {
     return normal.cross(tangent).normalize();
+}
+
+//Calculates the normal, tangent, and bitangent all in one go
+//The output matrix is arranged as:
+//[normal,
+// tangent,
+// bitangent]
+pub fn calcNTB(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec.Mat3 {
+    const d: f32 = 0.01; //Delta
+    const f0: f32 = sdf(pos);
+    const fx: f32 = sdf(.{ .x = pos.x + d, .y = pos.y, .z = pos.z });
+    const fy: f32 = sdf(.{ .x = pos.x, .y = pos.y + d, .z = pos.z });
+    const fz: f32 = sdf(.{ .x = pos.x, .y = pos.y, .z = pos.z + d });
+
+    const grad: vec.Vector3 = .{ .x = (f0 - fx) / d, .y = (f0 - fy) / d, .z = (f0 - fz) / d };
+
+    var NTB: vec.Mat3 = std.mem.zeroes(vec.Mat3);
+    NTB.r0 = grad.normalize(); //Normal
+
+    const c0: vec.Vector3 = NTB.r0.cross(.{ .x = 1.0, .y = 0.0, .z = 0.0 });
+    const c1: vec.Vector3 = NTB.r0.cross(.{ .x = 0.0, .y = 1.0, .z = 0.0 });
+    if (c0.length2() > c1.length2()) {
+        NTB.r1 = c0.normalize();
+    } else {
+        NTB.r1 = c1.normalize();
+    }
+
+    NTB.r2 = NTB.r0.cross(NTB.r1).normalize();
+
+    return NTB;
 }

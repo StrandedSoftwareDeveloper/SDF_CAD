@@ -44,6 +44,17 @@ pub const Vector3 = struct {
             .z = a.x * b.y - a.y * b.x,
         };
     }
+
+    pub fn dot(a: Vector3, b: Vector3) f32 {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+};
+
+//Matrix is stored row-major
+pub const Mat3 = struct {
+    r0: Vector3,
+    r1: Vector3,
+    r2: Vector3,
 };
 
 pub const Vector2 = struct {
