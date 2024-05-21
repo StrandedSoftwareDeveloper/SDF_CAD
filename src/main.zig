@@ -37,6 +37,16 @@ fn interp(edgeVertex1: vec.Vector3, valueAtVertex1: f32, edgeVertex2: vec.Vector
     };
 }
 
+fn findSeedPoint(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3) f32) vec.Vector3 {
+    var point: vec.Vector3 = startPoint;
+    const epsilon: f32 = 0.01;
+    while (@abs(sdfFunc(point)) > epsilon) {
+        const grad: vec.Vector3 = sdfUtils.gradient(point, sdfFunc);
+        point = point.add(grad);
+    }
+    return point;
+}
+
 fn starSdfWrapper(pos: vec.Vector2) f32 {
     return sdfUtils.starSdf(pos, 0.5, 8, 3.0);
 }
@@ -67,6 +77,9 @@ pub fn main() !void {
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
+
+    const seedPoint = findSeedPoint(.{ .x = 0.0, .y = 0.0, .z = 0.0 }, sdf);
+    std.debug.print("{d:.2}, {d:.2}, {d:.2}\n", .{ seedPoint.x, seedPoint.y, seedPoint.z });
 
     try writeSTL(stdout, verts.items);
 

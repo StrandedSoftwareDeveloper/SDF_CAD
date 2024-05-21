@@ -24,6 +24,10 @@ pub const Vector3 = struct {
     pub fn normalize(self: Vector3) Vector3 {
         return self.divideScalar(self.length());
     }
+
+    pub fn add(a: Vector3, b: Vector3) Vector3 {
+        return .{ .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+    }
 };
 
 pub const Vector2 = struct {
