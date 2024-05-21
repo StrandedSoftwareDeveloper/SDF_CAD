@@ -3,87 +3,8 @@
 //All of the SDF functions are adapted from https://iquilezles.org/articles/distfunctions/ under the MIT license
 
 const std = @import("std");
-
-const Vector3 = struct {
-    x: f32,
-    y: f32,
-    z: f32,
-
-    pub fn length(self: Vector3) f32 {
-        return std.math.sqrt(self.length2());
-    }
-
-    pub fn length2(self: Vector3) f32 {
-        return self.x * self.x + self.y * self.y + self.z * self.z;
-    }
-
-    pub fn lerp(min: Vector3, max: Vector3, k: Vector3) Vector3 {
-        return .{ .x = std.math.lerp(min.x, max.x, k.x), .y = std.math.lerp(min.y, max.y, k.y), .z = std.math.lerp(min.z, max.z, k.z) };
-    }
-
-    pub fn divideScalar(self: Vector3, scalar: f32) Vector3 {
-        return .{ .x = self.x / scalar, .y = self.y / scalar, .z = self.z / scalar };
-    }
-
-    pub fn normalize(self: Vector3) Vector3 {
-        return self.divideScalar(self.length());
-    }
-};
-
-const Vector2 = struct {
-    x: f32,
-    y: f32,
-
-    pub fn length(self: Vector2) f32 {
-        return std.math.sqrt(self.length2());
-    }
-
-    pub fn length2(self: Vector2) f32 {
-        return self.x * self.x + self.y * self.y;
-    }
-
-    pub fn lerp(min: Vector2, maximum: Vector2, k: Vector2) Vector2 {
-        return .{ .x = std.math.lerp(min.x, maximum.x, k.x), .y = std.math.lerp(min.y, maximum.y, k.y) };
-    }
-
-    pub fn divideScalar(self: *const Vector2, scalar: f32) Vector2 {
-        return .{ .x = self.x / scalar, .y = self.y / scalar };
-    }
-
-    pub fn multScalar(self: *const Vector2, scalar: f32) Vector2 {
-        return .{ .x = self.x * scalar, .y = self.y * scalar };
-    }
-
-    pub fn max(a: Vector2, b: Vector2) Vector2 {
-        return .{ .x = @max(a.x, b.x), .y = @max(a.y, b.y) };
-    }
-
-    pub fn addScalar(self: *const Vector2, scalar: f32) Vector2 {
-        return .{ .x = self.x + scalar, .y = self.y + scalar };
-    }
-
-    pub fn getAngle(self: *const Vector2) f32 {
-        return std.math.atan2(self.y, self.x);
-    }
-
-    pub fn rotate(self: *const Vector2, angle: f32) Vector2 {
-        const startAngle: f32 = self.getAngle();
-        const len: f32 = self.length();
-        return .{ .x = std.math.cos(startAngle + angle) * len, .y = std.math.sin(startAngle + angle) * len };
-    }
-
-    pub fn dot(a: Vector2, b: Vector2) f32 {
-        return a.x * b.x + a.y * b.y;
-    }
-
-    pub fn add(a: Vector2, b: Vector2) Vector2 {
-        return .{ .x = a.x + b.x, .y = a.y + b.y };
-    }
-
-    pub fn subtract(a: Vector2, b: Vector2) Vector2 {
-        return .{ .x = a.x - b.x, .y = a.y - b.y };
-    }
-};
+const vec = @import("vector.zig");
+const sdfPrimitives = @import("sdf.zig");
 
 // zig fmt: off
 
@@ -354,13 +275,13 @@ const triTable: [256][16]i8 = [256][16]i8{
 
 // zig fmt: on
 
-fn writeVertex(writer: anytype, vertex: Vector3) !void {
+fn writeVertex(writer: anytype, vertex: vec.Vector3) !void {
     _ = try writer.write(&std.mem.toBytes(vertex.x));
     _ = try writer.write(&std.mem.toBytes(vertex.y));
     _ = try writer.write(&std.mem.toBytes(vertex.z));
 }
 
-fn writeSTL(writer: anytype, vertices: []const Vector3) !void {
+fn writeSTL(writer: anytype, vertices: []const vec.Vector3) !void {
     try writer.writeByteNTimes(0, 80); //Write STL header
     try writer.writeInt(u32, @intCast(vertices.len / 3), .little); //Write number of triangles (each triangle is 3 vertices)
 
@@ -377,14 +298,14 @@ fn writeSTL(writer: anytype, vertices: []const Vector3) !void {
     }
 }
 
-fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min: Vector3, bounds_max: Vector3) Vector3 {
-    var point: Vector3 = .{ .x = @floatFromInt(x), .y = @floatFromInt(y), .z = @floatFromInt(z) };
+fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min: vec.Vector3, bounds_max: vec.Vector3) vec.Vector3 {
+    var point: vec.Vector3 = .{ .x = @floatFromInt(x), .y = @floatFromInt(y), .z = @floatFromInt(z) };
     point = point.divideScalar(@floatFromInt(resolution));
-    point = Vector3.lerp(bounds_min, bounds_max, point);
+    point = vec.Vector3.lerp(bounds_min, bounds_max, point);
     return point;
 }
 
-fn interp(edgeVertex1: Vector3, valueAtVertex1: f32, edgeVertex2: Vector3, valueAtVertex2: f32, threshold: f32) Vector3 {
+fn interp(edgeVertex1: vec.Vector3, valueAtVertex1: f32, edgeVertex2: vec.Vector3, valueAtVertex2: f32, threshold: f32) vec.Vector3 {
     return .{
         .x = (edgeVertex1.x + (threshold - valueAtVertex1) * (edgeVertex2.x - edgeVertex1.x) / (valueAtVertex2 - valueAtVertex1)),
         .y = (edgeVertex1.y + (threshold - valueAtVertex1) * (edgeVertex2.y - edgeVertex1.y) / (valueAtVertex2 - valueAtVertex1)),
@@ -392,103 +313,27 @@ fn interp(edgeVertex1: Vector3, valueAtVertex1: f32, edgeVertex2: Vector3, value
     };
 }
 
-fn sphereSdf(pos: Vector3, spherePos: Vector3, radius: f32) f32 {
-    const newVector: Vector3 = .{ .x = pos.x - spherePos.x, .y = pos.y - spherePos.y, .z = pos.z - spherePos.z };
-    return newVector.length() - radius;
+fn starSdfWrapper(pos: vec.Vector2) f32 {
+    return sdfPrimitives.starSdf(pos, 0.5, 8, 3.0);
 }
 
-fn circleSdf(pos: Vector2) f32 {
-    return pos.length() - 1.0;
-}
-
-fn circleSdf3D(pos: Vector3) f32 {
-    const newVector: Vector2 = .{ .x = pos.x, .y = pos.z };
-    const dist: f32 = circleSdf(newVector);
-    return std.math.sqrt(dist * dist + pos.y * pos.y);
-}
-
-fn boxSdf(pos: Vector2) f32 {
-    const b: Vector2 = .{ .x = 1.0, .y = 1.0 };
-    const d: Vector2 = .{ .x = @abs(pos.x) - b.x, .y = @abs(pos.y) - b.y };
-    return Vector2.length(Vector2.max(d, .{ .x = 0.0, .y = 0.0 })) + (@min(@max(d.x, d.y), 0.0));
-}
-
-fn starSdf(pos: Vector2, r: f32, n: usize, m: f32) f32 {
-    // next 4 lines can be precomputed for a given shape
-    const an: f32 = 3.141593 / @as(f32, @floatFromInt(n));
-    const en: f32 = 3.141593 / m; // m is between 2 and n
-    const acs: Vector2 = .{ .x = std.math.cos(an), .y = std.math.sin(an) };
-    const ecs: Vector2 = .{ .x = std.math.cos(en), .y = std.math.sin(en) }; // ecs=vec2(0,1) for regular polygon
-
-    // reduce to first sector
-    var bn: f32 = std.math.atan(pos.y / pos.x); //std.math.mod(f32, std.math.atan(pos.y / pos.x), 2.0*an) catch {unreachable;} - an;
-    bn = std.math.mod(f32, bn, 2.0 * an) catch {
-        unreachable;
-    };
-    bn = bn - an;
-
-    var p: Vector2 = pos;
-    const len: f32 = p.length();
-    p = .{ .x = std.math.cos(bn), .y = @abs(std.math.sin(bn)) };
-    p = p.multScalar(len);
-
-    p = p.subtract(acs.multScalar(r));
-    const thing0: f32 = -p.dot(ecs);
-    const thing1: f32 = r * acs.y / ecs.y;
-    const thing2: f32 = std.math.clamp(thing0, 0.0, thing1);
-    const thing3: Vector2 = ecs.multScalar(thing2);
-    //p = p.add(ecs.multScalar(std.math.clamp( -p.dot(ecs), 0.0, r*acs.y/ecs.y)));
-    p = p.add(thing3);
-    return p.length() * std.math.sign(p.x);
-}
-
-fn starSdfWrapper(pos: Vector2) f32 {
-    return starSdf(pos, 0.5, 8, 3.0);
-}
-
-fn smin(a: f32, b: f32, k: f32) f32 {
-    const newK = k * (1.0 / (1.0 - std.math.sqrt(0.5)));
-    const h: f32 = @max(newK - @abs(a - b), 0.0) / newK;
-    return @min(a, b) - newK * 0.5 * (1.0 + h - std.math.sqrt(1.0 - h * (h - 2.0)));
-}
-
-fn revolve(pos: Vector3, comptime primitive: fn (pos: Vector2) f32, o: f32) f32 {
-    const q: Vector2 = .{ .x = Vector2.length(Vector2{ .x = pos.x, .y = pos.z }) - o, .y = pos.y };
-    return primitive(q);
-}
-
-fn extrude(pos: Vector3, comptime primitive: fn (pos: Vector2) f32, h: f32) f32 {
-    const d: f32 = primitive(.{ .x = pos.x, .y = pos.y });
-    const w: Vector2 = .{ .x = d, .y = @abs(pos.z) - h };
-    return @min(@max(w.x, w.y), 0.0) + Vector2.length(Vector2.max(w, .{ .x = 0.0, .y = 0.0 }));
-}
-
-fn extrudeTwist(pos: Vector3, comptime primitive: fn (pos: Vector2) f32, h: f32, twist: f32) f32 {
-    var pos2D: Vector2 = .{ .x = pos.x, .y = pos.y };
-    pos2D = pos2D.rotate((pos.z / h) * std.math.degreesToRadians(twist / 2.0));
-    const d: f32 = primitive(pos2D);
-
-    const w: Vector2 = .{ .x = d, .y = @abs(pos.z) - h };
-    return @min(@max(w.x, w.y), 0.0) + Vector2.length(Vector2.max(w, .{ .x = 0.0, .y = 0.0 }));
-}
-
-fn sdf(pos: Vector3) f32 {
-    const s1: f32 = extrudeTwist(pos, starSdfWrapper, 1.0, -720.0);
-    const s2: f32 = extrudeTwist(pos, starSdfWrapper, 1.0, 720.0);
+fn sdf(pos: vec.Vector3) f32 {
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 1.0, -720.0);
+    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 1.0, 720.0);
     return @max(s1, s2);
 }
 
 pub fn main() !void {
-    const resolution: usize = 32;
-    const bounds_min: Vector3 = .{ .x = -0.75, .y = -0.75, .z = -1.1 };
-    const bounds_max: Vector3 = .{ .x = 0.75, .y = 0.75, .z = 1.1 };
+    const resolution: usize = 64;
+    const bounds_min: vec.Vector3 = .{ .x = -0.75, .y = -0.75, .z = -1.1 };
+    const bounds_max: vec.Vector3 = .{ .x = 0.75, .y = 0.75, .z = 1.1 };
     const threshold: f32 = 0.0;
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator: std.mem.Allocator = gpa.allocator();
 
-    var verts: std.ArrayList(Vector3) = std.ArrayList(Vector3).init(allocator);
+    var verts: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
     defer verts.deinit();
 
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -504,7 +349,7 @@ pub fn main() !void {
     for (0..resolution - 1) |z| {
         for (0..resolution - 1) |y| {
             for (0..resolution - 1) |x| {
-                const points: [8]Vector3 = [8]Vector3{
+                const points: [8]vec.Vector3 = [8]vec.Vector3{
                     stepsToWorldSpace(x + 0, y + 0, z + 1, resolution, bounds_min, bounds_max), //v0
                     stepsToWorldSpace(x + 1, y + 0, z + 1, resolution, bounds_min, bounds_max), //v1
                     stepsToWorldSpace(x + 1, y + 0, z + 0, resolution, bounds_min, bounds_max), //v2
