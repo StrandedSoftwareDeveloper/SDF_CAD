@@ -80,13 +80,23 @@ pub fn extrudeTwist(pos: vec.Vector3, comptime primitive: fn (pos: vec.Vector2) 
 pub fn gradient(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec.Vector3 {
     const d: f32 = 0.01; //Delta
     const f0: f32 = sdf(pos);
-    const f1: f32 = sdf(.{ .x = pos.x + d, .y = pos.y, .z = pos.z });
-    const f2: f32 = sdf(.{ .x = pos.x, .y = pos.y + d, .z = pos.z });
-    const f3: f32 = sdf(.{ .x = pos.x, .y = pos.y, .z = pos.z + d });
+    const fx: f32 = sdf(.{ .x = pos.x + d, .y = pos.y, .z = pos.z });
+    const fy: f32 = sdf(.{ .x = pos.x, .y = pos.y + d, .z = pos.z });
+    const fz: f32 = sdf(.{ .x = pos.x, .y = pos.y, .z = pos.z + d });
 
-    return .{ .x = (f0 - f1) / d, .y = (f0 - f2) / d, .z = (f0 - f3) / d };
+    return .{ .x = (f0 - fx) / d, .y = (f0 - fy) / d, .z = (f0 - fz) / d };
 }
 
-pub fn normal(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec.Vector3 {
+pub fn calcNormal(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec.Vector3 {
     return gradient(pos, sdf).normalize();
+}
+
+//Somewhat cursed way I figured out to calculate tangent and bitangent
+//Remember that the cross product of 2 vectors gives a vector that is perpendicular to both
+pub fn calcTangent(normal: vec.Vector3) vec.Vector3 {
+    return normal.cross(.{ .x = normal.x + 0.5, .y = normal.y, .z = normal.z }).normalize();
+}
+
+pub fn calcBitangent(normal: vec.Vector3, tangent: vec.Vector3) vec.Vector3 {
+    return normal.cross(tangent).normalize();
 }

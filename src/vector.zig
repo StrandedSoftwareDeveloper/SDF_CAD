@@ -17,6 +17,10 @@ pub const Vector3 = struct {
         return .{ .x = std.math.lerp(min.x, max.x, k.x), .y = std.math.lerp(min.y, max.y, k.y), .z = std.math.lerp(min.z, max.z, k.z) };
     }
 
+    pub fn multScalar(self: Vector3, scalar: f32) Vector3 {
+        return .{ .x = self.x * scalar, .y = self.y * scalar, .z = self.z * scalar };
+    }
+
     pub fn divideScalar(self: Vector3, scalar: f32) Vector3 {
         return .{ .x = self.x / scalar, .y = self.y / scalar, .z = self.z / scalar };
     }
@@ -27,6 +31,18 @@ pub const Vector3 = struct {
 
     pub fn add(a: Vector3, b: Vector3) Vector3 {
         return .{ .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+    }
+
+    pub fn sub(a: Vector3, b: Vector3) Vector3 {
+        return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
+    }
+
+    pub fn cross(a: Vector3, b: Vector3) Vector3 {
+        return .{
+            .x = a.y * b.z - a.z * b.y,
+            .y = a.z * b.x - a.x * b.z,
+            .z = a.x * b.y - a.y * b.x,
+        };
     }
 };
 

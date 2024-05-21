@@ -40,9 +40,14 @@ fn interp(edgeVertex1: vec.Vector3, valueAtVertex1: f32, edgeVertex2: vec.Vector
 fn findSeedPoint(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3) f32) vec.Vector3 {
     var point: vec.Vector3 = startPoint;
     const epsilon: f32 = 0.01;
-    while (@abs(sdfFunc(point)) > epsilon) {
+    for (0..100) |i| {
+        _ = i;
+
         const grad: vec.Vector3 = sdfUtils.gradient(point, sdfFunc);
-        point = point.add(grad);
+        point = point.add(grad.multScalar(sdfFunc(point)));
+        if (@abs(sdfFunc(point)) < epsilon) {
+            break;
+        }
     }
     return point;
 }
@@ -52,9 +57,10 @@ fn starSdfWrapper(pos: vec.Vector2) f32 {
 }
 
 fn sdf(pos: vec.Vector3) f32 {
-    const s1: f32 = sdfUtils.extrudeTwist(pos, starSdfWrapper, 1.0, -720.0);
-    const s2: f32 = sdfUtils.extrudeTwist(pos, starSdfWrapper, 1.0, 720.0);
-    return @max(s1, s2);
+    //const s1: f32 = sdfUtils.extrudeTwist(pos, starSdfWrapper, 1.0, -720.0);
+    //const s2: f32 = sdfUtils.extrudeTwist(pos, starSdfWrapper, 1.0, 720.0);
+    //return @max(s1, s2);
+    return sdfUtils.sphereSdf(pos, .{ .x = 0.0, .y = 0.0, .z = 0.0 }, 1.0);
 }
 
 pub fn main() !void {
@@ -78,8 +84,25 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    const seedPoint = findSeedPoint(.{ .x = 0.0, .y = 0.0, .z = 0.0 }, sdf);
-    std.debug.print("{d:.2}, {d:.2}, {d:.2}\n", .{ seedPoint.x, seedPoint.y, seedPoint.z });
+    var pcg = std.rand.Pcg.init(10);
+    const rng = pcg.random();
+
+    for (0..10000) |i| {
+        _ = i;
+
+        const startPoint: vec.Vector3 = .{ .x = rng.float(f32) * 2.0 - 1.0, .y = rng.float(f32) * 2.0 - 1.0, .z = rng.float(f32) * 2.0 - 1.0 };
+        const seedPoint: vec.Vector3 = findSeedPoint(startPoint, sdf);
+
+        const normal: vec.Vector3 = sdfUtils.calcNormal(seedPoint, sdf);
+        const tangent: vec.Vector3 = sdfUtils.calcTangent(normal).multScalar(0.2);
+        const bitangent: vec.Vector3 = sdfUtils.calcBitangent(normal, tangent).multScalar(0.2);
+
+        try verts.append(seedPoint);
+        try verts.append(seedPoint.add(tangent));
+        try verts.append(seedPoint.add(bitangent));
+
+        std.debug.print("{d:.3}, {d:.3}, {d:.3}: {d:.3}\n", .{ seedPoint.x, seedPoint.y, seedPoint.z, sdf(seedPoint) });
+    }
 
     try writeSTL(stdout, verts.items);
 
