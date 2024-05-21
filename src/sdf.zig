@@ -76,3 +76,17 @@ pub fn extrudeTwist(pos: vec.Vector3, comptime primitive: fn (pos: vec.Vector2) 
     const w: vec.Vector2 = .{ .x = d, .y = @abs(pos.z) - h };
     return @min(@max(w.x, w.y), 0.0) + vec.Vector2.length(vec.Vector2.max(w, .{ .x = 0.0, .y = 0.0 }));
 }
+
+pub fn gradient(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec.Vector3 {
+    const d: f32 = 0.01; //Delta
+    const f0: f32 = sdf(pos);
+    const f1: f32 = sdf(.{ .x = pos.x + d, .y = pos.y, .z = pos.z });
+    const f2: f32 = sdf(.{ .x = pos.x, .y = pos.y + d, .z = pos.z });
+    const f3: f32 = sdf(.{ .x = pos.x, .y = pos.y, .z = pos.z + d });
+
+    return .{ .x = (f0 - f1) / d, .y = (f0 - f2) / d, .z = (f0 - f3) / d };
+}
+
+pub fn normal(pos: vec.Vector3, comptime sdf: fn (pos: vec.Vector3) f32) vec.Vector3 {
+    return gradient(pos, sdf).normalize();
+}
