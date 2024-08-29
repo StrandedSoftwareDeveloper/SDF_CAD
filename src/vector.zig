@@ -5,6 +5,14 @@ pub const Vector3 = struct {
     y: f32,
     z: f32,
 
+    pub fn zero() Vector3 {
+        return .{.x = 0.0, .y = 0.0, .z = 0.0};
+    }
+
+    pub fn fromScalar(v: f32) Vector3 {
+        return .{.x = v, .y = v, .z = v};
+    }
+
     pub fn length(self: Vector3) f32 {
         return std.math.sqrt(self.length2());
     }
@@ -24,11 +32,19 @@ pub const Vector3 = struct {
     pub fn normalize(self: Vector3) Vector3 {
         return self.divideScalar(self.length());
     }
+
+    pub fn subtract(a: Vector3, b: Vector3) Vector3 {
+        return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
+    }
 };
 
 pub const Vector2 = struct {
     x: f32,
     y: f32,
+
+    pub fn abs(self: Vector2) Vector2 {
+        return .{.x = @abs(self.x), .y = @abs(self.y)};
+    }
 
     pub fn length(self: Vector2) f32 {
         return std.math.sqrt(self.length2());
