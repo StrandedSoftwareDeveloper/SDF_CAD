@@ -108,6 +108,27 @@ fn findDirection(point: vec.Vector3) vec.Vector3 {
     }
 }
 
+//if (!condition) {
+//    prevPrevPoint = prevPoint
+//}
+//prevPoint = point
+//point = next
+fn optimizeToolpath(toolpath: []vec.Vector3) void {
+    var prevPrevPoint: vec.Vector3 = vec.Vector3.zero();
+    var prevPoint: vec.Vector3 = vec.Vector3.zero();
+    for (toolpath, 0..) |point, i| {
+        if (calcAngle(prevPrevPoint, prevPoint, point) < 0.1) {
+
+        }
+    }
+}
+
+fn toolpathToGcode(toolpath: []vec.Vector3, writer: anytype) !void {
+    for (toolpath) |point| {
+        try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0.05\n", .{point.x, point.y, point.z});
+    }
+}
+
 pub fn main() !void {
     const lowResolution: f32 = 0.1; //The resolution used for things like finding out approximately where an edge is
     const layerHeight: f32 = 0.2; //Layer height in mm
@@ -119,8 +140,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator: std.mem.Allocator = gpa.allocator();
 
-    var verts: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
-    defer verts.deinit();
+    var toolpath: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
+    defer toolpath.deinit();
 
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
@@ -176,12 +197,16 @@ pub fn main() !void {
             continue;
         }
 
-        try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0", .{layerNum-firstLayer, startPoint.x, startPoint.y, point.z - bounds_min.z});
+        try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, startPoint.x, startPoint.y, point.z - bounds_min.z});
         var i: usize = 0;
         while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
             point = findDirection(point);
-            try stdout.print("G1 X{d:.2} Y{d:.2} F1200 E0.05\n", .{point.x, point.y});
+            try toolpath.append(point);
         }
+
+        try toolpathToGcode(toolpath.items, stdout);
+
+        toolpath.shrinkRetainingCapacity(0);
     }
 
     try bw.flush(); // don't forget to flush!
