@@ -22,8 +22,8 @@ pub fn circleSdf3D(pos: vec.Vector3) f32 {
     return std.math.sqrt(dist * dist + pos.y * pos.y);
 }
 
-pub fn boxSdf(pos: vec.Vector2) f32 {
-    const b: vec.Vector2 = .{ .x = 1.0, .y = 1.0 };
+pub fn boxSdf(pos: vec.Vector2, b: vec.Vector2) f32 {
+    //const b: vec.Vector2 = .{ .x = 1.0, .y = 1.0 };
     const d: vec.Vector2 = .{ .x = @abs(pos.x) - b.x, .y = @abs(pos.y) - b.y };
     return vec.Vector2.length(vec.Vector2.max(d, .{ .x = 0.0, .y = 0.0 })) + (@min(@max(d.x, d.y), 0.0));
 }

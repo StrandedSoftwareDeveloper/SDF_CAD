@@ -5,8 +5,6 @@ const std = @import("std");
 const vec = @import("vector.zig");
 const sdfPrimitives = @import("sdf.zig");
 
-const epsilon: f32 = 0.1;
-
 fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min: vec.Vector3, bounds_max: vec.Vector3) vec.Vector3 {
     var point: vec.Vector3 = .{ .x = @floatFromInt(x), .y = @floatFromInt(y), .z = @floatFromInt(z) };
     point = point.divideScalar(@floatFromInt(resolution));
@@ -18,17 +16,23 @@ fn starSdfWrapper(pos: vec.Vector2) f32 {
     return sdfPrimitives.starSdf(pos, 5.0, 8, 3.0);
 }
 
+fn boxSdfWrapper(pos: vec.Vector2) f32 {
+    return sdfPrimitives.boxSdf(pos, .{.x = 10.0, .y = 10.0});
+}
+
 fn sdf(pos: vec.Vector3) f32 {
     const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -720.0);
-    return s1;
-    //const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 720.0);
-    //return @max(s1, s2);
+    //const s1: f32 = sdfPrimitives.extrude(pos, boxSdfWrapper, 10.0);
+    //return s1;
+    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 720.0);
+    return @max(s1, s2);
     //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
     //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
 }
 
 //TODO: finish writing this function
 fn findSurface2D(initialPoint: vec.Vector3) vec.Vector3 {
+    const epsilon: f32 = 0.01;
     const pointDist: f32 = sdf(initialPoint);
     const rightDist: f32 = sdf(.{.x = initialPoint.x + epsilon, .y = initialPoint.y, .z = initialPoint.z});
     const downDist: f32 = sdf(.{.x = initialPoint.x, .y = initialPoint.y + epsilon, .z = initialPoint.z});
@@ -40,6 +44,8 @@ fn findSurface2D(initialPoint: vec.Vector3) vec.Vector3 {
 
 //Note: Assumes that one of the points is inside and the other isn't
 fn findSurfaceOnLine(p1: vec.Vector3, p2: vec.Vector3, maxIterations: usize) vec.Vector3 {
+    const epsilon: f32 = 0.01;
+
     var insidePoint: vec.Vector3 = p1;
     var outsidePoint: vec.Vector3 = p2;
     var swapped: bool = false;
@@ -70,6 +76,8 @@ fn findSurfaceOnLine(p1: vec.Vector3, p2: vec.Vector3, maxIterations: usize) vec
 
 //Note: As a 2D function, "up" and "down" refer to "y+" and "y-" respectively
 fn findDirection(point: vec.Vector3) vec.Vector3 {
+    const epsilon: f32 = 0.1;
+
     const upPos:    vec.Vector3 = .{.x = point.x, .y = point.y + epsilon*2.0, .z = point.z};
     const rightPos: vec.Vector3 = .{.x = point.x + epsilon*2.0, .y = point.y, .z = point.z};
     const downPos:  vec.Vector3 = .{.x = point.x, .y = point.y - epsilon*2.0, .z = point.z};
@@ -77,30 +85,30 @@ fn findDirection(point: vec.Vector3) vec.Vector3 {
 
     if (sdf(upPos) < 0.0) {
         if (sdf(leftPos) >= 0.0) {
-            return findSurfaceOnLine(upPos, leftPos, 10);
+            return findSurfaceOnLine(upPos, leftPos, 100);
         }
 
         if (sdf(downPos) >= 0.0) {
-            return findSurfaceOnLine(leftPos, downPos, 10);
+            return findSurfaceOnLine(leftPos, downPos, 100);
         }
 
         if (sdf(rightPos) >= 0.0) {
-            return findSurfaceOnLine(downPos, rightPos, 10);
+            return findSurfaceOnLine(downPos, rightPos, 100);
         }
 
         std.debug.print("All 4 points are inside! {d:.2} {d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z, sdf(point)});
         return vec.Vector3.zero();
     } else {
         if (sdf(rightPos) < 0.0) {
-            return findSurfaceOnLine(upPos, rightPos, 10);
+            return findSurfaceOnLine(upPos, rightPos, 100);
         }
 
         if (sdf(downPos) < 0.0) {
-            return findSurfaceOnLine(rightPos, downPos, 10);
+            return findSurfaceOnLine(rightPos, downPos, 100);
         }
 
         if (sdf(leftPos) < 0.0) {
-            return findSurfaceOnLine(downPos, leftPos, 10);
+            return findSurfaceOnLine(downPos, leftPos, 100);
         }
 
         std.debug.print("All 4 points are outside!\n", .{});
@@ -108,24 +116,59 @@ fn findDirection(point: vec.Vector3) vec.Vector3 {
     }
 }
 
-//if (!condition) {
-//    prevPrevPoint = prevPoint
-//}
-//prevPoint = point
-//point = next
-fn optimizeToolpath(toolpath: []vec.Vector3) void {
-    var prevPrevPoint: vec.Vector3 = vec.Vector3.zero();
-    var prevPoint: vec.Vector3 = vec.Vector3.zero();
-    for (toolpath, 0..) |point, i| {
-        if (calcAngle(prevPrevPoint, prevPoint, point) < 0.1) {
+//Calculates the inner angle between p1<->p2<->p3
+fn calcAngle(p1: vec.Vector3, p2: vec.Vector3, p3: vec.Vector3) f32 {
+    const u: vec.Vector3 = p1.subtract(p2);
+    const v: vec.Vector3 = p3.subtract(p2);
+    const dot: f32 = vec.Vector3.dot(u, v);
+    const cosAngle: f32 = dot / (u.length() * v.length());
 
+    return std.math.acos(cosAngle);
+}
+
+//Writes the optimized toolpath in-place into `toolpath` and returns the new size (which is always <= toolpath.len)
+fn optimizeToolpath(toolpath: []vec.Vector3) usize {
+    var outIndex: usize = 0;
+
+    if (toolpath.len < 3) {
+        for (toolpath) |p| {
+            toolpath[outIndex] = p;
+            outIndex += 1;
         }
     }
+
+    var prevPrevPoint: vec.Vector3 = toolpath[0];
+    var prevPoint: vec.Vector3 = toolpath[1];
+    var point: vec.Vector3 = toolpath[2];
+    for (2..toolpath.len) |i| {
+        point = toolpath[i];
+        if (calcAngle(prevPrevPoint, prevPoint, point) < 3.0) {
+            toolpath[outIndex] = prevPrevPoint; //Output the point
+            outIndex += 1;
+
+            prevPrevPoint = prevPoint;
+        }
+        prevPoint = point;
+    }
+    if (!vec.Vector3.approxEq(prevPrevPoint, prevPoint, 0.001)) {
+        toolpath[outIndex] = prevPrevPoint; //Output the point
+        outIndex += 1;
+    }
+    toolpath[outIndex] = prevPoint;
+    outIndex += 1;
+    toolpath[outIndex] = point; //Output the point
+    outIndex += 1;
+
+    return outIndex; //Return size
 }
 
 fn toolpathToGcode(toolpath: []vec.Vector3, writer: anytype) !void {
+    const extrusionFactor: f32 = 0.5;
+    var prevPoint: vec.Vector3 = toolpath[0];
     for (toolpath) |point| {
-        try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0.05\n", .{point.x, point.y, point.z});
+        const extrudeAmount: f32 = point.subtract(prevPoint).length() * extrusionFactor;
+        try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E{d:.2}\n", .{point.x, point.y, point.z, extrudeAmount});
+        prevPoint = point;
     }
 }
 
@@ -203,6 +246,9 @@ pub fn main() !void {
             point = findDirection(point);
             try toolpath.append(point);
         }
+
+        const newSize: usize = optimizeToolpath(toolpath.items);
+        toolpath.shrinkRetainingCapacity(newSize);
 
         try toolpathToGcode(toolpath.items, stdout);
 

@@ -36,6 +36,14 @@ pub const Vector3 = struct {
     pub fn subtract(a: Vector3, b: Vector3) Vector3 {
         return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
     }
+
+    pub fn dot(a: Vector3, b: Vector3) f32 {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    pub fn approxEq(a: Vector3, b: Vector3, tolerance: f32) bool {
+        return std.math.approxEqRel(f32, a.x, b.x, tolerance) and std.math.approxEqRel(f32, a.y, b.y, tolerance) and std.math.approxEqRel(f32, a.z, b.z, tolerance);
+    }
 };
 
 pub const Vector2 = struct {
