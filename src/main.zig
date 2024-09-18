@@ -13,7 +13,7 @@ fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min
 }
 
 fn starSdfWrapper(pos: vec.Vector2) f32 {
-    return sdfPrimitives.starSdf(pos, 5.0, 8, 3.0);
+    return sdfPrimitives.starSdf(pos, 10.0, 8, 3.0);
 }
 
 fn boxSdfWrapper(pos: vec.Vector2) f32 {
@@ -21,10 +21,10 @@ fn boxSdfWrapper(pos: vec.Vector2) f32 {
 }
 
 fn sdf(pos: vec.Vector3) f32 {
-    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -720.0);
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
     //const s1: f32 = sdfPrimitives.extrude(pos, boxSdfWrapper, 10.0);
     //return s1;
-    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 720.0);
+    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
     return @max(s1, s2);
     //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
     //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
@@ -163,12 +163,41 @@ fn optimizeToolpath(toolpath: []vec.Vector3) usize {
 }
 
 fn toolpathToGcode(toolpath: []vec.Vector3, writer: anytype) !void {
-    const extrusionFactor: f32 = 0.5;
+    const extrusionFactor: f32 = 0.05;
     var prevPoint: vec.Vector3 = toolpath[0];
     for (toolpath) |point| {
         const extrudeAmount: f32 = point.subtract(prevPoint).length() * extrusionFactor;
         try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E{d:.2}\n", .{point.x, point.y, point.z, extrudeAmount});
         prevPoint = point;
+    }
+}
+
+fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !void {
+    const origLen: usize = toolpath.items.len-1;
+    for (0..origLen) |i| {
+        const index: isize = @intCast(i);
+        const point: vec.Vector3 = toolpath.items[i];
+        const prevPoint: vec.Vector3 = toolpath.items[@intCast(try std.math.mod(isize, index-1, @intCast(origLen)))];
+        const nextPoint: vec.Vector3 = toolpath.items[@intCast(try std.math.mod(isize, index+1, @intCast(origLen)))];
+        const v03D: vec.Vector3 = prevPoint.subtract(point);
+        const v13D: vec.Vector3 = nextPoint.subtract(point);
+        const v02D: vec.Vector2 = .{.x = v03D.x, .y = v03D.y};
+        const v12D: vec.Vector2 = .{.x = v13D.x, .y = v13D.y};
+        const angle0: f32 = v02D.getAngle();
+        const angle1: f32 = v12D.getAngle();
+        const angle: f32 = (angle0 + angle1) * 0.5;
+
+        const v0: vec.Vector2 = .{.x = @cos(angle) * 0.5, .y = @sin(angle) * 0.5};
+        const v1: vec.Vector2 = vec.Vector2.zero().subtract(v0); //Negate v0
+        var v: vec.Vector3 = .{.x = v0.x + point.x, .y = v0.y + point.y, .z = point.z};
+        if (sdf(v.add(offset)) > 0.0) { //Pick the one that's inside
+            v = .{.x = v1.x + point.x, .y = v1.y + point.y, .z = point.z};
+        }
+
+        if (sdf(v.add(offset)) > 0.0) {
+            std.debug.print("AAAAAAAAA {d:.2} {d:.2} {d:.2}\n", .{sdf(point.subtract(offset)), sdf(v), sdf(.{.x = v1.x + point.x, .y = v1.y + point.y, .z = point.z})});
+        }
+        try toolpath.append(v);
     }
 }
 
@@ -209,6 +238,7 @@ pub fn main() !void {
     try bw.flush();
 
     var firstLayer: usize = std.math.maxInt(usize);
+    var firstLayerZ: f32 = 0.0;
     var layerNum: usize = 0;
     var z: f32 = bounds_min.z;
     while (z < bounds_max.z) : (z += layerHeight) {
@@ -230,6 +260,7 @@ pub fn main() !void {
                     foundSurface = true;
                     if (firstLayer == std.math.maxInt(usize)) {
                         firstLayer = layerNum;
+                        firstLayerZ = z + 0.1;
                     }
                     break :yLoop;
                 }
@@ -240,19 +271,30 @@ pub fn main() !void {
             continue;
         }
 
-        try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, startPoint.x, startPoint.y, point.z - bounds_min.z});
+        //try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, point.x, point.y, point.z - firstLayerZ});
+        try stdout.print(";LAYER:{}\n", .{layerNum-firstLayer});
         var i: usize = 0;
         while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
             point = findDirection(point);
-            try toolpath.append(point);
+            try toolpath.append(point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}));
         }
 
         const newSize: usize = optimizeToolpath(toolpath.items);
         toolpath.shrinkRetainingCapacity(newSize);
 
+        try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
+
         try toolpathToGcode(toolpath.items, stdout);
 
         toolpath.shrinkRetainingCapacity(0);
+    }
+
+    {
+        var endGcodeFile: std.fs.File = try std.fs.cwd().openFile("end.gcode", .{});
+        defer endGcodeFile.close();
+        const endGcode: []u8 = try endGcodeFile.readToEndAlloc(allocator, 1_000_000);
+        defer allocator.free(endGcode);
+        try stdout.print("{s}\n", .{endGcode});
     }
 
     try bw.flush(); // don't forget to flush!

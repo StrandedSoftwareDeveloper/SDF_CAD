@@ -37,6 +37,10 @@ pub const Vector3 = struct {
         return .{ .x = a.x - b.x, .y = a.y - b.y, .z = a.z - b.z };
     }
 
+    pub fn add(a: Vector3, b: Vector3) Vector3 {
+        return .{ .x = a.x + b.x, .y = a.y + b.y, .z = a.z + b.z };
+    }
+
     pub fn dot(a: Vector3, b: Vector3) f32 {
         return a.x * b.x + a.y * b.y + a.z * b.z;
     }
@@ -49,6 +53,10 @@ pub const Vector3 = struct {
 pub const Vector2 = struct {
     x: f32,
     y: f32,
+
+    pub fn zero() Vector2 {
+        return .{.x = 0.0, .y = 0.0};
+    }
 
     pub fn abs(self: Vector2) Vector2 {
         return .{.x = @abs(self.x), .y = @abs(self.y)};
