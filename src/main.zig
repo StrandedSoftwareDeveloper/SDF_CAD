@@ -5,11 +5,29 @@ const std = @import("std");
 const vec = @import("vector.zig");
 const sdfPrimitives = @import("sdf.zig");
 
+const BitmapEntry = struct {
+    value: u8,
+    x: f32,
+    y: f32,
+};
+
 fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min: vec.Vector3, bounds_max: vec.Vector3) vec.Vector3 {
     var point: vec.Vector3 = .{ .x = @floatFromInt(x), .y = @floatFromInt(y), .z = @floatFromInt(z) };
     point = point.divideScalar(@floatFromInt(resolution));
     point = vec.Vector3.lerp(bounds_min, bounds_max, point);
     return point;
+}
+
+fn minMaxToIndex(v: f32, min: f32, max: f32, indexMax: usize) usize {
+    const range: f32 = max - min;
+    const k: f32 = (v - min) / range;
+    return @intFromFloat(k*@as(f32, @floatFromInt(indexMax)));
+}
+
+fn indexToMinMax(v: usize, min: f32, max: f32, indexMax: usize) f32 {
+    const vFloat: f32 = @floatFromInt(v);
+    const k: f32 = vFloat / @as(f32, @floatFromInt(indexMax));
+    return std.math.lerp(min, max, k);
 }
 
 fn starSdfWrapper(pos: vec.Vector2) f32 {
@@ -208,9 +226,20 @@ pub fn main() !void {
     const bounds_max: vec.Vector3 = .{ .x = 10.0, .y = 10.0, .z = 10.0 };
     const threshold: f32 = 0.0;
 
+    const cellsX: usize = @as(usize, @intFromFloat((bounds_max.x - bounds_min.x) / lowResolution));
+    const cellsY: usize = @as(usize, @intFromFloat((bounds_max.y - bounds_min.y) / lowResolution));
+    std.debug.print("{} {}\n", .{cellsX, cellsY});
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator: std.mem.Allocator = gpa.allocator();
+
+    var bitmap: []BitmapEntry = try allocator.alloc(BitmapEntry, cellsX*cellsY);
+    defer allocator.free(bitmap);
+
+    for (0..bitmap.len) |i| {
+        bitmap[i] = .{.value = 0, .x = 0.0, .y = 0.0};
+    }
 
     var toolpath: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
     defer toolpath.deinit();
@@ -249,26 +278,37 @@ pub fn main() !void {
         var point: vec.Vector3 = vec.Vector3.zero();
         var foundSurface: bool = false;
 
+        var index: usize = 0;
         var y: f32 = bounds_min.y;
-        yLoop: while (y < bounds_max.y) : (y += lowResolution) {
+        while (y < bounds_max.y) : (y += lowResolution) {
             var x: f32 = bounds_min.x;
             while (x < bounds_max.x) : (x += lowResolution) {
                 if (sdf(.{.x = x, .y = y, .z = z}) < threshold) {
                     //var startPoint: vec.Vector3 = findSurface2D(.{.x = x, .y = y, .z = z});
-                    startPoint = findSurfaceOnLine(.{.x = x - lowResolution, .y = y, .z = z}, .{.x = x, .y = y, .z = z}, 10);
-                    point = findDirection(startPoint);
                     foundSurface = true;
                     if (firstLayer == std.math.maxInt(usize)) {
                         firstLayer = layerNum;
                         firstLayerZ = z + 0.1;
                     }
-                    break :yLoop;
+                    bitmap[index] = .{.value = 1, .x = x, .y = y};
+                    index += 1;
                 }
             }
         }
 
         if (!foundSurface) {
             continue;
+        }
+
+        yLoop: for (0..cellsY) |yIndex| {
+            for (0..cellsX) |xIndex| {
+                const cell: BitmapEntry = bitmap[yIndex*cellsX+xIndex];
+                if (cell.value == 1) {
+                    startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
+                    point = findDirection(startPoint);
+                    break :yLoop;
+                }
+            }
         }
 
         //try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, point.x, point.y, point.z - firstLayerZ});
