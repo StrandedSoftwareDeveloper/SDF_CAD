@@ -4,12 +4,16 @@
 const std = @import("std");
 const vec = @import("vector.zig");
 const sdfPrimitives = @import("sdf.zig");
+const line = @import("line.zig");
+const bm = @import("bitmap.zig");
 
-const BitmapEntry = struct {
-    value: u8,
-    x: f32,
-    y: f32,
-};
+fn uTOi(v: usize) isize {
+    return @intCast(v);
+}
+
+fn iTOu(v: isize) usize {
+    return @intCast(v);
+}
 
 fn stepsToWorldSpace(x: usize, y: usize, z: usize, resolution: usize, bounds_min: vec.Vector3, bounds_max: vec.Vector3) vec.Vector3 {
     var point: vec.Vector3 = .{ .x = @floatFromInt(x), .y = @floatFromInt(y), .z = @floatFromInt(z) };
@@ -46,7 +50,7 @@ fn sdf(pos: vec.Vector3) f32 {
     //return @max(s1, s2);
     //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
     //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
-    return sdfPrimitives.torusSdf(pos, .{.x = 5.0, .y = 2.0});
+    return sdfPrimitives.torusSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.01}, .{.x = 5.0, .y = 2.0});
 }
 
 //TODO: finish writing this function
@@ -223,25 +227,24 @@ fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !voi
     }
 }
 
-fn dumpImage(bitmap: []BitmapEntry, width: usize, height: usize) !void {
+fn dumpImage(bitmap: bm.Bitmap) !void {
     const file: std.fs.File = try std.fs.cwd().createFile("out.ppm", .{});
     defer file.close();
     var bw = std.io.bufferedWriter(file.writer());
     const w = bw.writer();
-    try w.print("P3\n{}\n{}\n255\n", .{width, height});
-    for (0..width*height) |i| {
-        try w.print("{} {} {}\n", .{bitmap[i].value*100, bitmap[i].value*100, bitmap[i].value*100});
+    try w.print("P3\n{}\n{}\n255\n", .{bitmap.width, bitmap.height});
+    for (0..bitmap.width*bitmap.height) |i| {
+        try w.print("{} {} {}\n", .{bitmap.data[i].value*100, bitmap.data[i].value*100, bitmap.data[i].value*100});
     }
     try bw.flush();
 }
 
-pub fn drawLine(image: []BitmapEntry, width: usize, height: usize, inX0: usize, inY0: usize, inX1: usize, inY1: usize) void {
-    const iWidth: isize = @intCast(width);
+pub fn drawLine(image: bm.Bitmap, inX0: usize, inY0: usize, inX1: usize, inY1: usize) void {
+    const iWidth: isize = @intCast(image.width);
     var x0: isize = @intCast(inX0);
     var y0: isize = @intCast(inY0);
     const x1: isize = @intCast(inX1);
     const y1: isize = @intCast(inY1);
-    _ = height;
     const dx: isize =  @intCast(@abs (x1 - x0));
     const sx: isize = if (x0 < x1) 1 else -1;
     const dy: isize = -@as(isize, @intCast(@abs (y1 - y0)));
@@ -250,7 +253,7 @@ pub fn drawLine(image: []BitmapEntry, width: usize, height: usize, inX0: usize, 
     var e2: isize = 0; // error value e_xy
 
     while (true) {  // loop
-        image[@intCast(y0*iWidth+x0)].value = 2;
+        image.data[@intCast(y0*iWidth+x0)].value = 2;
 
         if (x0 == x1 and y0 == y1) {
             break;
@@ -276,11 +279,14 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator: std.mem.Allocator = gpa.allocator();
 
-    var bitmap: []BitmapEntry = try allocator.alloc(BitmapEntry, cellsX*cellsY);
-    defer allocator.free(bitmap);
+    var bitmap: bm.Bitmap = std.mem.zeroes(bm.Bitmap);
+    bitmap.data = try allocator.alloc(bm.BitmapEntry, cellsX*cellsY);
+    bitmap.width = cellsX;
+    bitmap.height = cellsY;
+    defer allocator.free(bitmap.data);
 
-    for (0..bitmap.len) |i| {
-        bitmap[i] = .{.value = 0, .x = 0.0, .y = 0.0};
+    for (0..bitmap.data.len) |i| {
+        bitmap.data[i] = .{.value = 0, .x = 0.0, .y = 0.0};
     }
 
     var toolpath: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
@@ -332,9 +338,9 @@ pub fn main() !void {
                         firstLayer = layerNum;
                         firstLayerZ = z + 0.1;
                     }
-                    bitmap[index] = .{.value = 1, .x = x, .y = y};
+                    bitmap.data[index] = .{.value = 1, .x = x, .y = y};
                 } else {
-                    bitmap[index] = .{.value = 0, .x = x, .y = y};
+                    bitmap.data[index] = .{.value = 0, .x = x, .y = y};
                 }
                 index += 1;
             }
@@ -344,10 +350,12 @@ pub fn main() !void {
             continue;
         }
 
+        try dumpImage(bitmap);
+
         var lastValue: u8 = 0;
-        yLoop: for (0..cellsY) |yIndex| {
+        for (0..cellsY) |yIndex| {
             for (0..cellsX) |xIndex| {
-                const cell: BitmapEntry = bitmap[yIndex*cellsX+xIndex];
+                const cell: bm.BitmapEntry = bitmap.data[yIndex*cellsX+xIndex];
                 if (cell.value == 1 and lastValue == 0) {
                     startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
                     point = findDirection(startPoint);
@@ -360,7 +368,8 @@ pub fn main() !void {
                         try toolpath.append(point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}));
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
-                        drawLine(bitmap, cellsX, cellsY, lastXIndex, lastYIndex, xIndex2, yIndex2);
+                        //drawLine(bitmap, lastXIndex, lastYIndex, xIndex2, yIndex2);
+                        line.drawThickLine(bitmap, 2, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 2.0, 2.0);
                         lastXIndex = xIndex2;
                         lastYIndex = yIndex2;
                     }
@@ -368,18 +377,18 @@ pub fn main() !void {
                     //const newSize: usize = optimizeToolpath(toolpath.items);
                     //toolpath.shrinkRetainingCapacity(newSize);
 
-                    try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
+                    //try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
 
-                    break :yLoop;
+                    //break :yLoop;
                 }
                 lastValue = cell.value;
             }
         }
         std.debug.print("{}\n", .{toolpath.items.len});
 
-        try dumpImage(bitmap, cellsX, cellsY);
+        try dumpImage(bitmap);
         if (layerNum == 50) {
-            return;
+            //return;
         }
 
         //try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, point.x, point.y, point.z - firstLayerZ});
