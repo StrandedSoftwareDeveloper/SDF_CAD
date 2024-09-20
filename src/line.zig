@@ -1,6 +1,6 @@
 //Adapted from http://kt8216.unixcab.org/murphy/index.html
 const std = @import("std");
-const bitmap = @import("bitmap.zig");
+const utils = @import("utils.zig");
 
 fn uTOi(v: usize) isize {
     return @intCast(v);
@@ -10,7 +10,7 @@ fn iTOu(v: isize) usize {
     return @intCast(v);
 }
 
-fn pixel(b: bitmap.Bitmap, x: isize, y: isize, color: u8) void {
+fn pixel(b: utils.Bitmap, x: isize, y: isize, color: u8) void {
     b.data[@intCast(y*@as(isize, @intCast(b.width))+x)].value = color;
 }
 
@@ -20,7 +20,7 @@ fn pixel(b: bitmap.Bitmap, x: isize, y: isize, color: u8) void {
 //*                                                                     *
 //***********************************************************************
 
-fn x_perpendicular(B: bitmap.Bitmap, color: u8,
+fn x_perpendicular(B: utils.Bitmap, color: u8,
                        x0: isize, y0: isize, dx: isize, dy: isize, xstep: isize, ystep: isize,
                        einit: isize, w_left: isize, w_right: isize, winit: isize) void {
     var x: isize = x0;
@@ -75,7 +75,7 @@ fn x_perpendicular(B: bitmap.Bitmap, color: u8,
 }
 
 
-fn x_varthick_line(B: bitmap.Bitmap, color: u8,
+fn x_varthick_line(B: utils.Bitmap, color: u8,
                        x0: isize, y0: isize, dx: isize, dy: isize, xstep: isize, ystep: isize,
                        left: f64, right: f64, pxstep: isize, pystep: isize) void {
     var p_error: isize = 0;
@@ -117,7 +117,7 @@ fn x_varthick_line(B: bitmap.Bitmap, color: u8,
 //*                                                                     *
 //***********************************************************************
 
-fn y_perpendicular(B: bitmap.Bitmap, color: u8,
+fn y_perpendicular(B: utils.Bitmap, color: u8,
                             x0: isize, y0: isize, dx: isize, dy: isize, xstep: isize, ystep: isize,
                             einit: isize, w_left: isize, w_right: isize, winit: isize) void {
     var x: isize = x0;
@@ -171,7 +171,7 @@ fn y_perpendicular(B: bitmap.Bitmap, color: u8,
 }
 
 
-fn y_varthick_line(B: bitmap.Bitmap, color: u8,
+fn y_varthick_line(B: utils.Bitmap, color: u8,
                        x0: isize, y0: isize, dx: isize, dy: isize, xstep: isize, ystep: isize,
                        left: f64, right: f64, pxstep: isize, pystep: isize) void {
     var p_error: isize = 0;
@@ -213,7 +213,7 @@ fn y_varthick_line(B: bitmap.Bitmap, color: u8,
 //*                                                                     *
 //***********************************************************************
 
-pub fn drawThickLine(B: bitmap.Bitmap, color: u8,
+pub fn drawThickLine(B: utils.Bitmap, color: u8,
                           x0: isize, y0: isize, x1: isize, y1: isize,
                           left: f64, right: f64) void {
     var dx: isize = x1-x0;

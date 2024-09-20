@@ -5,7 +5,7 @@ const std = @import("std");
 const vec = @import("vector.zig");
 const sdfPrimitives = @import("sdf.zig");
 const line = @import("line.zig");
-const bm = @import("bitmap.zig");
+const utils = @import("utils.zig");
 
 fn uTOi(v: usize) isize {
     return @intCast(v);
@@ -188,13 +188,17 @@ fn optimizeToolpath(toolpath: []vec.Vector3) usize {
     return outIndex; //Return size
 }
 
-fn toolpathToGcode(toolpath: []vec.Vector3, writer: anytype) !void {
+fn toolpathToGcode(toolpath: []utils.ToolpathEntry, writer: anytype) !void {
     const extrusionFactor: f32 = 0.05;
-    var prevPoint: vec.Vector3 = toolpath[0];
+    var prevPoint: vec.Vector3 = toolpath[0].pos;
     for (toolpath) |point| {
-        const extrudeAmount: f32 = point.subtract(prevPoint).length() * extrusionFactor;
-        try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E{d:.2}\n", .{point.x, point.y, point.z, extrudeAmount});
-        prevPoint = point;
+        if (point.travel) {
+            try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200\n", .{point.pos.x, point.pos.y, point.pos.z});
+        } else {
+            const extrudeAmount: f32 = point.pos.subtract(prevPoint).length() * extrusionFactor;
+            try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E{d:.2}\n", .{point.pos.x, point.pos.y, point.pos.z, extrudeAmount});
+        }
+        prevPoint = point.pos;
     }
 }
 
@@ -227,7 +231,7 @@ fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !voi
     }
 }
 
-fn dumpImage(bitmap: bm.Bitmap) !void {
+fn dumpImage(bitmap: utils.Bitmap) !void {
     const file: std.fs.File = try std.fs.cwd().createFile("out.ppm", .{});
     defer file.close();
     var bw = std.io.bufferedWriter(file.writer());
@@ -239,7 +243,7 @@ fn dumpImage(bitmap: bm.Bitmap) !void {
     try bw.flush();
 }
 
-pub fn drawLine(image: bm.Bitmap, inX0: usize, inY0: usize, inX1: usize, inY1: usize) void {
+pub fn drawLine(image: utils.Bitmap, inX0: usize, inY0: usize, inX1: usize, inY1: usize) void {
     const iWidth: isize = @intCast(image.width);
     var x0: isize = @intCast(inX0);
     var y0: isize = @intCast(inY0);
@@ -279,8 +283,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator: std.mem.Allocator = gpa.allocator();
 
-    var bitmap: bm.Bitmap = std.mem.zeroes(bm.Bitmap);
-    bitmap.data = try allocator.alloc(bm.BitmapEntry, cellsX*cellsY);
+    var bitmap: utils.Bitmap = std.mem.zeroes(utils.Bitmap);
+    bitmap.data = try allocator.alloc(utils.BitmapEntry, cellsX*cellsY);
     bitmap.width = cellsX;
     bitmap.height = cellsY;
     defer allocator.free(bitmap.data);
@@ -289,7 +293,7 @@ pub fn main() !void {
         bitmap.data[i] = .{.value = 0, .x = 0.0, .y = 0.0};
     }
 
-    var toolpath: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
+    var toolpath: std.ArrayList(utils.ToolpathEntry) = std.ArrayList(utils.ToolpathEntry).init(allocator);
     defer toolpath.deinit();
 
     // stdout is for the actual output of your application, for example if you
@@ -355,17 +359,18 @@ pub fn main() !void {
         var lastValue: u8 = 0;
         for (0..cellsY) |yIndex| {
             for (0..cellsX) |xIndex| {
-                const cell: bm.BitmapEntry = bitmap.data[yIndex*cellsX+xIndex];
+                const cell: utils.BitmapEntry = bitmap.data[yIndex*cellsX+xIndex];
                 if (cell.value == 1 and lastValue == 0) {
                     startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
                     point = findDirection(startPoint);
+                    try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = true});
 
                     var i: usize = 0;
                     var lastXIndex: usize = minMaxToIndex(startPoint.x, bounds_min.x, bounds_max.x, cellsX);
                     var lastYIndex: usize = minMaxToIndex(startPoint.y, bounds_min.y, bounds_max.y, cellsY);
                     while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
                         point = findDirection(point);
-                        try toolpath.append(point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}));
+                        try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = false});
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
                         //drawLine(bitmap, lastXIndex, lastYIndex, xIndex2, yIndex2);
