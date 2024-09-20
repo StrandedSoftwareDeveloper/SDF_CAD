@@ -7,6 +7,11 @@ pub fn vertCappedCylinderSdf(pos: vec.Vector3, h: f32, r: f32) f32 {
     return @min(@max(d.x,d.y), 0.0) + d.max(.{.x = 0.0, .y = 0.0}).length();
 }
 
+pub fn torusSdf(pos: vec.Vector3, t: vec.Vector2) f32 {
+    const q: vec.Vector2 = .{.x = vec.Vector2.length(.{.x = pos.x, .y = pos.y})-t.x, .y = pos.z};
+    return q.length()-t.y;
+}
+
 pub fn sphereSdf(pos: vec.Vector3, spherePos: vec.Vector3, radius: f32) f32 {
     const newVector: vec.Vector3 = .{ .x = pos.x - spherePos.x, .y = pos.y - spherePos.y, .z = pos.z - spherePos.z };
     return newVector.length() - radius;

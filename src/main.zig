@@ -39,13 +39,14 @@ fn boxSdfWrapper(pos: vec.Vector2) f32 {
 }
 
 fn sdf(pos: vec.Vector3) f32 {
-    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
+    //const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
     //const s1: f32 = sdfPrimitives.extrude(pos, boxSdfWrapper, 10.0);
     //return s1;
-    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
-    return @max(s1, s2);
+    //const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
+    //return @max(s1, s2);
     //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
     //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
+    return sdfPrimitives.torusSdf(pos, .{.x = 5.0, .y = 2.0});
 }
 
 //TODO: finish writing this function
@@ -174,6 +175,9 @@ fn optimizeToolpath(toolpath: []vec.Vector3) usize {
     }
     toolpath[outIndex] = prevPoint;
     outIndex += 1;
+    if (outIndex >= toolpath.len) {
+        std.debug.print("What in the heck\n", .{});
+    }
     toolpath[outIndex] = point; //Output the point
     outIndex += 1;
 
@@ -213,9 +217,47 @@ fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !voi
         }
 
         if (sdf(v.add(offset)) > 0.0) {
-            std.debug.print("AAAAAAAAA {d:.2} {d:.2} {d:.2}\n", .{sdf(point.subtract(offset)), sdf(v), sdf(.{.x = v1.x + point.x, .y = v1.y + point.y, .z = point.z})});
+            //std.debug.print("AAAAAAAAA {d:.2} {d:.2} {d:.2}\n", .{sdf(point.subtract(offset)), sdf(v), sdf(.{.x = v1.x + point.x, .y = v1.y + point.y, .z = point.z})});
         }
         try toolpath.append(v);
+    }
+}
+
+fn dumpImage(bitmap: []BitmapEntry, width: usize, height: usize) !void {
+    const file: std.fs.File = try std.fs.cwd().createFile("out.ppm", .{});
+    defer file.close();
+    var bw = std.io.bufferedWriter(file.writer());
+    const w = bw.writer();
+    try w.print("P3\n{}\n{}\n255\n", .{width, height});
+    for (0..width*height) |i| {
+        try w.print("{} {} {}\n", .{bitmap[i].value*100, bitmap[i].value*100, bitmap[i].value*100});
+    }
+    try bw.flush();
+}
+
+pub fn drawLine(image: []BitmapEntry, width: usize, height: usize, inX0: usize, inY0: usize, inX1: usize, inY1: usize) void {
+    const iWidth: isize = @intCast(width);
+    var x0: isize = @intCast(inX0);
+    var y0: isize = @intCast(inY0);
+    const x1: isize = @intCast(inX1);
+    const y1: isize = @intCast(inY1);
+    _ = height;
+    const dx: isize =  @intCast(@abs (x1 - x0));
+    const sx: isize = if (x0 < x1) 1 else -1;
+    const dy: isize = -@as(isize, @intCast(@abs (y1 - y0)));
+    const sy: isize = if (y0 < y1) 1 else -1;
+    var err: isize = dx + dy;
+    var e2: isize = 0; // error value e_xy
+
+    while (true) {  // loop
+        image[@intCast(y0*iWidth+x0)].value = 2;
+
+        if (x0 == x1 and y0 == y1) {
+            break;
+        }
+        e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; } // e_xy+e_x > 0
+        if (e2 <= dx) { err += dx; y0 += sy; } // e_xy+e_y < 0
     }
 }
 
@@ -291,8 +333,10 @@ pub fn main() !void {
                         firstLayerZ = z + 0.1;
                     }
                     bitmap[index] = .{.value = 1, .x = x, .y = y};
-                    index += 1;
+                } else {
+                    bitmap[index] = .{.value = 0, .x = x, .y = y};
                 }
+                index += 1;
             }
         }
 
@@ -300,30 +344,46 @@ pub fn main() !void {
             continue;
         }
 
+        var lastValue: u8 = 0;
         yLoop: for (0..cellsY) |yIndex| {
             for (0..cellsX) |xIndex| {
                 const cell: BitmapEntry = bitmap[yIndex*cellsX+xIndex];
-                if (cell.value == 1) {
+                if (cell.value == 1 and lastValue == 0) {
                     startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
                     point = findDirection(startPoint);
+
+                    var i: usize = 0;
+                    var lastXIndex: usize = minMaxToIndex(startPoint.x, bounds_min.x, bounds_max.x, cellsX);
+                    var lastYIndex: usize = minMaxToIndex(startPoint.y, bounds_min.y, bounds_max.y, cellsY);
+                    while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
+                        point = findDirection(point);
+                        try toolpath.append(point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}));
+                        const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
+                        const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
+                        drawLine(bitmap, cellsX, cellsY, lastXIndex, lastYIndex, xIndex2, yIndex2);
+                        lastXIndex = xIndex2;
+                        lastYIndex = yIndex2;
+                    }
+
+                    //const newSize: usize = optimizeToolpath(toolpath.items);
+                    //toolpath.shrinkRetainingCapacity(newSize);
+
+                    try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
+
                     break :yLoop;
                 }
+                lastValue = cell.value;
             }
+        }
+        std.debug.print("{}\n", .{toolpath.items.len});
+
+        try dumpImage(bitmap, cellsX, cellsY);
+        if (layerNum == 50) {
+            return;
         }
 
         //try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, point.x, point.y, point.z - firstLayerZ});
         try stdout.print(";LAYER:{}\n", .{layerNum-firstLayer});
-        var i: usize = 0;
-        while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
-            point = findDirection(point);
-            try toolpath.append(point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}));
-        }
-
-        const newSize: usize = optimizeToolpath(toolpath.items);
-        toolpath.shrinkRetainingCapacity(newSize);
-
-        try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
-
         try toolpathToGcode(toolpath.items, stdout);
 
         toolpath.shrinkRetainingCapacity(0);
