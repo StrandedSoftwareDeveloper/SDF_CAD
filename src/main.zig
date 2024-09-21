@@ -196,6 +196,9 @@ fn optimizeToolpath(toolpath: []utils.ToolpathEntry) usize {
 }
 
 fn toolpathToGcode(toolpath: []utils.ToolpathEntry, writer: anytype) !void {
+    if (toolpath.len == 0) {
+        return;
+    }
     const extrusionFactor: f32 = 0.05;
     var prevPoint: vec.Vector3 = toolpath[0].pos;
     for (toolpath) |point| {
@@ -275,12 +278,51 @@ pub fn drawLine(image: utils.Bitmap, inX0: usize, inY0: usize, inX1: usize, inY1
     }
 }
 
+//TODO: Fix this function and those little bits of solid infill on the inside next to the perimeter
+pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.ToolpathEntry), z: f32, offset: vec.Vector3) !void {
+    for (0..bitmap.height) |yIndex| {
+        for (0..bitmap.width) |xIndex| {
+            var cellIndex = yIndex*bitmap.width+xIndex;
+            var cell: utils.BitmapEntry = bitmap.data[cellIndex];
+            if (cell.value & 0b00000100 != 0 and cell.value & 0b00000010 == 0) { //Cell is marked for solid infill, but isn't filled in yet
+                try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = true});
+                bitmap.data[cellIndex].value |= 0b00000010;
+
+                var cellX: usize = xIndex;
+                var cellY: usize = yIndex;
+                while (true) {
+                    var numSteps: usize = 0;
+                    while (true) {
+                        cellX += 1;
+                        cellY += 1;
+                        cellIndex = cellY*bitmap.width+cellX;
+                        cell = bitmap.data[cellIndex];
+                        if (cell.value & 0b00000010 != 0 or cell.value & 0b00000100 == 0) {
+                            break;
+                        }
+
+                        bitmap.data[cellIndex].value |= 0b00000010;
+                        numSteps += 1;
+                    }
+
+                    try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
+
+                    if (numSteps < 1) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn main() !void {
     const lowResolution: f32 = 0.1; //The resolution used for things like finding out approximately where an edge is
     const layerHeight: f32 = 0.2; //Layer height in mm
     const bounds_min: vec.Vector3 = .{ .x = -15.0, .y = -15.0, .z = -10.0 };
     const bounds_max: vec.Vector3 = .{ .x = 15.0, .y = 15.0, .z = 10.0 };
     const threshold: f32 = 0.0;
+    var offset: vec.Vector3 = .{.x = 70.0, .y = 30.0, .z = 0.0};
     //std.debug.print("{d:.2}\n", .{sdf(bounds_max)});
 
     const cellsX: usize = @as(usize, @intFromFloat((bounds_max.x - bounds_min.x) / lowResolution));
@@ -350,6 +392,7 @@ pub fn main() !void {
                     if (firstLayer == std.math.maxInt(usize)) {
                         firstLayer = layerNum;
                         firstLayerZ = z + 0.1;
+                        offset.z = firstLayerZ;
                     }
                     bitmap.data[index].x = x;
                     bitmap.data[index].y = y;
@@ -378,14 +421,14 @@ pub fn main() !void {
                     startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
                     point = findDirection(startPoint);
                     const firstPoint: vec.Vector3 = point;
-                    try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = true});
+                    try toolpath.append(.{.pos = point.subtract(offset), .travel = true});
 
                     var i: usize = 0;
                     var lastXIndex: usize = minMaxToIndex(startPoint.x, bounds_min.x, bounds_max.x, cellsX);
                     var lastYIndex: usize = minMaxToIndex(startPoint.y, bounds_min.y, bounds_max.y, cellsY);
                     while ((startPoint.subtract(point).length() > 0.3 or i < 5) and i < 10000) : (i += 1) {
                         point = findDirection(point);
-                        try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = false});
+                        try toolpath.append(.{.pos = point.subtract(offset), .travel = false});
                         //std.debug.print("Point: {d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z});
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
@@ -395,15 +438,14 @@ pub fn main() !void {
                         lastYIndex = yIndex2;
                     }
 
-                    try toolpath.append(.{.pos = firstPoint.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = false});
+                    try toolpath.append(.{.pos = firstPoint.subtract(offset), .travel = false});
 
                     const newSize: usize = optimizeToolpath(toolpath.items);
                     toolpath.shrinkRetainingCapacity(newSize);
 
-                    //try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
+                    //try addInnerWall(&toolpath, offset);
 
                     try toolpathToGcode(toolpath.items, stdout);
-
                     toolpath.shrinkRetainingCapacity(0);
 
                     //break :yLoop;
@@ -413,9 +455,13 @@ pub fn main() !void {
             }
         }
 
+        try genSolidInfill(bitmap, &toolpath, z, offset);
+        try toolpathToGcode(toolpath.items, stdout);
+        toolpath.shrinkRetainingCapacity(0);
+
         //try dumpImage("out2.ppm", bitmap);
         if (layerNum == 59) {
-            //try dumpImage("out2.ppm", bitmap);
+            try dumpImage("out2.ppm", bitmap);
             //return;
         }
 
