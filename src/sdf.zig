@@ -7,6 +7,28 @@ pub fn vertCappedCylinderSdf(pos: vec.Vector3, h: f32, r: f32) f32 {
     return @min(@max(d.x,d.y), 0.0) + d.max(.{.x = 0.0, .y = 0.0}).length();
 }
 
+pub fn hexPrismSdf(pos: vec.Vector3, h: vec.Vector2) f32 {
+    const k: vec.Vector3 = .{.x = -0.8660254, .y = 0.5, .z = 0.57735};
+    const q: vec.Vector3 = pos.abs();
+    var p: vec.Vector3 = pos.abs();
+    p.x -= 2.0*@min(vec.Vector2.dot(.{.x = k.x, .y = k.y}, .{.x = q.x, .y = q.y}), 0.0)*k.x;
+    p.y -= 2.0*@min(vec.Vector2.dot(.{.x = k.x, .y = k.y}, .{.x = q.x, .y = q.y}), 0.0)*k.y;
+    const d: vec.Vector2 = .{
+        .x = vec.Vector2.length(vec.Vector2.subtract(.{.x = p.x, .y = p.y}, .{.x = std.math.clamp(p.x,-k.z*h.x,k.z*h.x), .y = h.x}))*std.math.sign(p.y-h.x),
+        .y = p.z-h.y
+    };
+    return @min(@max(d.x,d.y),0.0) + vec.Vector2.length(vec.Vector2.max(d,.{.x = 0.0, .y = 0.0}));
+}
+
+pub fn hexagonSdf(pos: vec.Vector2, r: f32) f32 {
+    const k: vec.Vector3 = .{.x = -0.866025404, .y = 0.5, .z = 0.577350269};
+    var p: vec.Vector2 = pos.abs();
+    p.x -= 2.0*@min(vec.Vector2.dot(.{.x = k.x, .y = k.y},p),0.0)*k.x;
+    p.y -= 2.0*@min(vec.Vector2.dot(.{.x = k.x, .y = k.y},p),0.0)*k.y;
+    p = p.subtract(.{.x = std.math.clamp(p.x, -k.z*r, k.z*r), .y = r});
+    return p.length()*std.math.sign(p.y);
+}
+
 pub fn torusSdf(pos: vec.Vector3, t: vec.Vector2) f32 {
     const q: vec.Vector2 = .{.x = vec.Vector2.length(.{.x = pos.x, .y = pos.y})-t.x, .y = pos.z};
     return q.length()-t.y;

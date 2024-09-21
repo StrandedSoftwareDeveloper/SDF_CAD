@@ -42,15 +42,20 @@ fn boxSdfWrapper(pos: vec.Vector2) f32 {
     return sdfPrimitives.boxSdf(pos, .{.x = 10.0, .y = 10.0});
 }
 
+fn hexSdfWrapper(pos: vec.Vector2) f32 {
+    return sdfPrimitives.hexagonSdf(pos, 0.1);
+}
+
 fn sdf(pos: vec.Vector3) f32 {
-    //const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
     //const s1: f32 = sdfPrimitives.extrude(pos, boxSdfWrapper, 10.0);
     //return s1;
     //const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
-    //return @max(s1, s2);
+    const s3: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z}, .{.x = 12.0, .y = 2.0});
+    return @max(s3, -s1);
     //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
     //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
-    return sdfPrimitives.torusSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.01}, .{.x = 5.0, .y = 2.0});
+    //return sdfPrimitives.torusSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.01}, .{.x = 5.0, .y = 2.0});
 }
 
 //TODO: finish writing this function
@@ -150,7 +155,7 @@ fn calcAngle(p1: vec.Vector3, p2: vec.Vector3, p3: vec.Vector3) f32 {
 }
 
 //Writes the optimized toolpath in-place into `toolpath` and returns the new size (which is always <= toolpath.len)
-fn optimizeToolpath(toolpath: []vec.Vector3) usize {
+fn optimizeToolpath(toolpath: []utils.ToolpathEntry) usize {
     var outIndex: usize = 0;
 
     if (toolpath.len < 3) {
@@ -160,20 +165,22 @@ fn optimizeToolpath(toolpath: []vec.Vector3) usize {
         }
     }
 
-    var prevPrevPoint: vec.Vector3 = toolpath[0];
-    var prevPoint: vec.Vector3 = toolpath[1];
-    var point: vec.Vector3 = toolpath[2];
+    var prevPrevPoint: utils.ToolpathEntry = toolpath[0];
+    var prevPoint: utils.ToolpathEntry = toolpath[1];
+    var point: utils.ToolpathEntry = toolpath[2];
     for (2..toolpath.len) |i| {
         point = toolpath[i];
-        if (calcAngle(prevPrevPoint, prevPoint, point) < 3.0) {
+        if (calcAngle(prevPrevPoint.pos, prevPoint.pos, point.pos) < 3.0) {
             toolpath[outIndex] = prevPrevPoint; //Output the point
             outIndex += 1;
 
             prevPrevPoint = prevPoint;
         }
+
         prevPoint = point;
     }
-    if (!vec.Vector3.approxEq(prevPrevPoint, prevPoint, 0.001)) {
+
+    if (!vec.Vector3.approxEq(prevPrevPoint.pos, prevPoint.pos, 0.001)) {
         toolpath[outIndex] = prevPrevPoint; //Output the point
         outIndex += 1;
     }
@@ -231,8 +238,8 @@ fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !voi
     }
 }
 
-fn dumpImage(bitmap: utils.Bitmap) !void {
-    const file: std.fs.File = try std.fs.cwd().createFile("out.ppm", .{});
+fn dumpImage(path: []const u8, bitmap: utils.Bitmap) !void {
+    const file: std.fs.File = try std.fs.cwd().createFile(path, .{});
     defer file.close();
     var bw = std.io.bufferedWriter(file.writer());
     const w = bw.writer();
@@ -271,9 +278,10 @@ pub fn drawLine(image: utils.Bitmap, inX0: usize, inY0: usize, inX1: usize, inY1
 pub fn main() !void {
     const lowResolution: f32 = 0.1; //The resolution used for things like finding out approximately where an edge is
     const layerHeight: f32 = 0.2; //Layer height in mm
-    const bounds_min: vec.Vector3 = .{ .x = -10.0, .y = -10.0, .z = -10.0 };
-    const bounds_max: vec.Vector3 = .{ .x = 10.0, .y = 10.0, .z = 10.0 };
+    const bounds_min: vec.Vector3 = .{ .x = -15.0, .y = -15.0, .z = -10.0 };
+    const bounds_max: vec.Vector3 = .{ .x = 15.0, .y = 15.0, .z = 10.0 };
     const threshold: f32 = 0.0;
+    //std.debug.print("{d:.2}\n", .{sdf(bounds_max)});
 
     const cellsX: usize = @as(usize, @intFromFloat((bounds_max.x - bounds_min.x) / lowResolution));
     const cellsY: usize = @as(usize, @intFromFloat((bounds_max.y - bounds_min.y) / lowResolution));
@@ -354,7 +362,7 @@ pub fn main() !void {
             continue;
         }
 
-        try dumpImage(bitmap);
+        try dumpImage("out1.ppm", bitmap);
 
         var lastValue: u8 = 0;
         for (0..cellsY) |yIndex| {
@@ -371,6 +379,7 @@ pub fn main() !void {
                     while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
                         point = findDirection(point);
                         try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = false});
+                        //std.debug.print("Point: {d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z});
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
                         //drawLine(bitmap, lastXIndex, lastYIndex, xIndex2, yIndex2);
@@ -379,28 +388,28 @@ pub fn main() !void {
                         lastYIndex = yIndex2;
                     }
 
-                    //const newSize: usize = optimizeToolpath(toolpath.items);
-                    //toolpath.shrinkRetainingCapacity(newSize);
+                    const newSize: usize = optimizeToolpath(toolpath.items);
+                    toolpath.shrinkRetainingCapacity(newSize);
 
                     //try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
+
+                    try stdout.print(";LAYER:{}\n", .{layerNum-firstLayer});
+                    try toolpathToGcode(toolpath.items, stdout);
+
+                    toolpath.shrinkRetainingCapacity(0);
 
                     //break :yLoop;
                 }
                 lastValue = cell.value;
             }
         }
-        std.debug.print("{}\n", .{toolpath.items.len});
 
-        try dumpImage(bitmap);
+        try dumpImage("out2.ppm", bitmap);
         if (layerNum == 50) {
             //return;
         }
 
         //try stdout.print(";LAYER:{}\nG1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E0\n", .{layerNum-firstLayer, point.x, point.y, point.z - firstLayerZ});
-        try stdout.print(";LAYER:{}\n", .{layerNum-firstLayer});
-        try toolpathToGcode(toolpath.items, stdout);
-
-        toolpath.shrinkRetainingCapacity(0);
     }
 
     {

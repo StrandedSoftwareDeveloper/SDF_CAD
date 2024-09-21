@@ -48,6 +48,10 @@ pub const Vector3 = struct {
     pub fn approxEq(a: Vector3, b: Vector3, tolerance: f32) bool {
         return std.math.approxEqRel(f32, a.x, b.x, tolerance) and std.math.approxEqRel(f32, a.y, b.y, tolerance) and std.math.approxEqRel(f32, a.z, b.z, tolerance);
     }
+
+    pub fn abs(self: Vector3) Vector3 {
+        return .{.x = @abs(self.x), .y = @abs(self.y), .z = @abs(self.z)};
+    }
 };
 
 pub const Vector2 = struct {
