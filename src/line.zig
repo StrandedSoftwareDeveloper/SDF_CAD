@@ -14,7 +14,7 @@ fn pixel(b: utils.Bitmap, x: isize, y: isize, color: u8) void {
     if (x < 0 or x >= b.width or y < 0 or y >= b.height) {
         return;
     }
-    b.data[@intCast(y*@as(isize, @intCast(b.width))+x)].value = color;
+    b.data[@intCast(y*@as(isize, @intCast(b.width))+x)].value |= color;
 }
 
 //***********************************************************************

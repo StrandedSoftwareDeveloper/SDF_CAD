@@ -51,7 +51,7 @@ fn sdf(pos: vec.Vector3) f32 {
     //const s1: f32 = sdfPrimitives.extrude(pos, boxSdfWrapper, 10.0);
     //return s1;
     //const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
-    const s3: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z}, .{.x = 12.0, .y = 2.0});
+    const s3: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
     return @max(s3, -s1);
     //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
     //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
@@ -104,7 +104,7 @@ fn findSurfaceOnLine(p1: vec.Vector3, p2: vec.Vector3, maxIterations: usize) vec
 
 //Note: As a 2D function, "up" and "down" refer to "y+" and "y-" respectively
 fn findDirection(point: vec.Vector3) vec.Vector3 {
-    const epsilon: f32 = 0.1;
+    const epsilon: f32 = 0.2;
 
     const upPos:    vec.Vector3 = .{.x = point.x, .y = point.y + epsilon*2.0, .z = point.z};
     const rightPos: vec.Vector3 = .{.x = point.x + epsilon*2.0, .y = point.y, .z = point.z};
@@ -245,7 +245,7 @@ fn dumpImage(path: []const u8, bitmap: utils.Bitmap) !void {
     const w = bw.writer();
     try w.print("P3\n{}\n{}\n255\n", .{bitmap.width, bitmap.height});
     for (0..bitmap.width*bitmap.height) |i| {
-        try w.print("{} {} {}\n", .{bitmap.data[i].value*100, bitmap.data[i].value*100, bitmap.data[i].value*100});
+        try w.print("{} {} {}\n", .{(bitmap.data[i].value & 0b00000001)*255, ((bitmap.data[i].value & 0b00000010) >> 1)*255, ((bitmap.data[i].value & 0b00000100) >> 2)*255});
     }
     try bw.flush();
 }
@@ -343,6 +343,7 @@ pub fn main() !void {
         while (y < bounds_max.y) : (y += lowResolution) {
             var x: f32 = bounds_min.x;
             while (x < bounds_max.x) : (x += lowResolution) {
+                bitmap.data[index] = .{.value = 0, .x = x, .y = y};
                 if (sdf(.{.x = x, .y = y, .z = z}) < threshold) {
                     //var startPoint: vec.Vector3 = findSurface2D(.{.x = x, .y = y, .z = z});
                     foundSurface = true;
@@ -350,9 +351,12 @@ pub fn main() !void {
                         firstLayer = layerNum;
                         firstLayerZ = z + 0.1;
                     }
-                    bitmap.data[index] = .{.value = 1, .x = x, .y = y};
-                } else {
-                    bitmap.data[index] = .{.value = 0, .x = x, .y = y};
+                    bitmap.data[index].x = x;
+                    bitmap.data[index].y = y;
+                    bitmap.data[index].value |= 0b00000001;
+                    if (sdf(.{.x = x, .y = y, .z = z + layerHeight}) > threshold or sdf(.{.x = x, .y = y, .z = z - layerHeight}) > threshold) {
+                        bitmap.data[index].value |= 0b00000100;
+                    }
                 }
                 index += 1;
             }
@@ -362,50 +366,56 @@ pub fn main() !void {
             continue;
         }
 
-        try dumpImage("out1.ppm", bitmap);
+        //try dumpImage("out1.ppm", bitmap);
+        try stdout.print(";LAYER:{}\n", .{layerNum-firstLayer});
 
+        var temp: usize = 0;
         var lastValue: u8 = 0;
         for (0..cellsY) |yIndex| {
             for (0..cellsX) |xIndex| {
                 const cell: utils.BitmapEntry = bitmap.data[yIndex*cellsX+xIndex];
-                if (cell.value == 1 and lastValue == 0) {
+                if (cell.value & 0b00000011 == 1 and lastValue & 0b00000011 == 0) {
                     startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
                     point = findDirection(startPoint);
+                    const firstPoint: vec.Vector3 = point;
                     try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = true});
 
                     var i: usize = 0;
                     var lastXIndex: usize = minMaxToIndex(startPoint.x, bounds_min.x, bounds_max.x, cellsX);
                     var lastYIndex: usize = minMaxToIndex(startPoint.y, bounds_min.y, bounds_max.y, cellsY);
-                    while ((startPoint.subtract(point).length() > 0.2 or i < 5) and i < 10000) : (i += 1) {
+                    while ((startPoint.subtract(point).length() > 0.3 or i < 5) and i < 10000) : (i += 1) {
                         point = findDirection(point);
                         try toolpath.append(.{.pos = point.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = false});
                         //std.debug.print("Point: {d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z});
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
                         //drawLine(bitmap, lastXIndex, lastYIndex, xIndex2, yIndex2);
-                        line.drawThickLine(bitmap, 2, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 2.0, 2.0);
+                        line.drawThickLine(bitmap, 0b00000010, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 3.0, 3.0);
                         lastXIndex = xIndex2;
                         lastYIndex = yIndex2;
                     }
+
+                    try toolpath.append(.{.pos = firstPoint.subtract(.{.x = 70.0, .y = 30.0, .z = firstLayerZ}), .travel = false});
 
                     const newSize: usize = optimizeToolpath(toolpath.items);
                     toolpath.shrinkRetainingCapacity(newSize);
 
                     //try addInnerWall(&toolpath, .{.x = 70.0, .y = 30.0, .z = firstLayerZ});
 
-                    try stdout.print(";LAYER:{}\n", .{layerNum-firstLayer});
                     try toolpathToGcode(toolpath.items, stdout);
 
                     toolpath.shrinkRetainingCapacity(0);
 
                     //break :yLoop;
+                    temp += 1;
                 }
                 lastValue = cell.value;
             }
         }
 
-        try dumpImage("out2.ppm", bitmap);
-        if (layerNum == 50) {
+        //try dumpImage("out2.ppm", bitmap);
+        if (layerNum == 59) {
+            //try dumpImage("out2.ppm", bitmap);
             //return;
         }
 
