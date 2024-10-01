@@ -7,6 +7,12 @@ const sdfPrimitives = @import("sdf.zig");
 const line = @import("line.zig");
 const utils = @import("utils.zig");
 
+const BitmapMask = enum(u8) {
+    SOLID = 0b00000001,
+    FILLED_IN = 0b00000010,
+    SHOULD_SOLID_INFILL = 0b00000100,
+};
+
 fn uTOi(v: usize) isize {
     return @intCast(v);
 }
@@ -284,9 +290,9 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
         for (0..bitmap.width) |xIndex| {
             var cellIndex = yIndex*bitmap.width+xIndex;
             var cell: utils.BitmapEntry = bitmap.data[cellIndex];
-            if (cell.value & 0b00000100 != 0 and cell.value & 0b00000010 == 0) { //Cell is marked for solid infill, but isn't filled in yet
+            if (cell.value & BitmapMask.SHOULD_SOLID_INFILL != 0 and cell.value & BitmapMask.FILLED_IN == 0) { //Cell is marked for solid infill, but isn't filled in yet
                 try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = true});
-                bitmap.data[cellIndex].value |= 0b00000010;
+                bitmap.data[cellIndex].value |= BitmapMask.FILLED_IN;
 
                 var cellX: usize = xIndex;
                 var cellY: usize = yIndex;
@@ -297,11 +303,11 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                         cellY += 1;
                         cellIndex = cellY*bitmap.width+cellX;
                         cell = bitmap.data[cellIndex];
-                        if (cell.value & 0b00000010 != 0 or cell.value & 0b00000100 == 0) {
+                        if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) {
                             break;
                         }
 
-                        bitmap.data[cellIndex].value |= 0b00000010;
+                        bitmap.data[cellIndex].value |= BitmapMask.FILLED_IN;
                         numSteps += 1;
                     }
 
@@ -396,9 +402,9 @@ pub fn main() !void {
                     }
                     bitmap.data[index].x = x;
                     bitmap.data[index].y = y;
-                    bitmap.data[index].value |= 0b00000001;
+                    bitmap.data[index].value |= BitmapMask.SOLID;
                     if (sdf(.{.x = x, .y = y, .z = z + layerHeight}) > threshold or sdf(.{.x = x, .y = y, .z = z - layerHeight}) > threshold) {
-                        bitmap.data[index].value |= 0b00000100;
+                        bitmap.data[index].value |= BitmapMask.SHOULD_SOLID_INFILL;
                     }
                 }
                 index += 1;
@@ -417,7 +423,7 @@ pub fn main() !void {
         for (0..cellsY) |yIndex| {
             for (0..cellsX) |xIndex| {
                 const cell: utils.BitmapEntry = bitmap.data[yIndex*cellsX+xIndex];
-                if (cell.value & 0b00000011 == 1 and lastValue & 0b00000011 == 0) {
+                if (cell.value & (BitmapMask.SOLID | BitmapMask.FILLED_IN) == 1 and lastValue & (BitmapMask.SOLID | BitmapMask.FILLED_IN) == 0) {
                     startPoint = findSurfaceOnLine(.{.x = cell.x - lowResolution, .y = cell.y, .z = z}, .{.x = cell.x, .y = cell.y, .z = z}, 10);
                     point = findDirection(startPoint);
                     const firstPoint: vec.Vector3 = point;
@@ -433,7 +439,7 @@ pub fn main() !void {
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
                         //drawLine(bitmap, lastXIndex, lastYIndex, xIndex2, yIndex2);
-                        line.drawThickLine(bitmap, 0b00000010, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 3.0, 3.0);
+                        line.drawThickLine(bitmap, BitmapMask.FILLED_IN, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 3.0, 3.0);
                         lastXIndex = xIndex2;
                         lastYIndex = yIndex2;
                     }
