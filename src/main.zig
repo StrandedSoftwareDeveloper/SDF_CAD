@@ -294,24 +294,34 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                 try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = true});
                 bitmap.data[cellIndex].value |= BitmapMask.FILLED_IN;
 
-                var cellX: usize = xIndex;
-                var cellY: usize = yIndex;
+                var cellX: isize = @as(isize, @intCast(xIndex));
+                var cellY: isize = @as(isize, @intCast(yIndex));
                 while (true) {
+
+                    const startX: isize = cellX;
+                    const startY: isize = cellY;
+                    try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
                     var numSteps: usize = 0;
                     while (true) {
                         cellX += 1;
                         cellY += 1;
-                        cellIndex = cellY*bitmap.width+cellX;
+                        cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
                         cell = bitmap.data[cellIndex];
                         if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) {
                             break;
                         }
 
-                        bitmap.data[cellIndex].value |= BitmapMask.FILLED_IN;
+                        //bitmap.data[cellIndex].value |= BitmapMask.FILLED_IN;
                         numSteps += 1;
                     }
 
+                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, startX, startY, cellX, cellY, 2.0, 2.0);
+
                     try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
+
+                    //Move here
+                    cellX += 1;
+                    cellY -= 1;
 
                     if (numSteps < 1) {
                         break;
