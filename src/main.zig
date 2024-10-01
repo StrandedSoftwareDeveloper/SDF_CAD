@@ -7,10 +7,10 @@ const sdfPrimitives = @import("sdf.zig");
 const line = @import("line.zig");
 const utils = @import("utils.zig");
 
-const BitmapMask = enum(u8) {
-    SOLID = 0b00000001,
-    FILLED_IN = 0b00000010,
-    SHOULD_SOLID_INFILL = 0b00000100,
+const BitmapMask = struct {
+    const SOLID: u8 = 0b00000001;
+    const FILLED_IN: u8 = 0b00000010;
+    const SHOULD_SOLID_INFILL: u8 = 0b00000100;
 };
 
 fn uTOi(v: usize) isize {
