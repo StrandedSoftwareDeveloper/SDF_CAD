@@ -296,6 +296,8 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
 
                 var cellX: isize = @as(isize, @intCast(xIndex));
                 var cellY: isize = @as(isize, @intCast(yIndex));
+                var stepX: isize = 1;
+                var stepY: isize = 1;
                 while (true) {
 
                     const startX: isize = cellX;
@@ -303,8 +305,8 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                     try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
                     var numSteps: usize = 0;
                     while (true) {
-                        cellX += 1;
-                        cellY += 1;
+                        cellX += stepX;
+                        cellY += stepY;
                         cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
                         cell = bitmap.data[cellIndex];
                         if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) {
@@ -315,13 +317,91 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                         numSteps += 1;
                     }
 
-                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, startX, startY, cellX, cellY, 2.0, 2.0);
+                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, startX, startY, cellX, cellY, 1.0, 2.0);
 
                     try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
 
                     //Move here
                     cellX += 1;
                     cellY -= 1;
+                    cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                    cell = bitmap.data[cellIndex];
+
+                    var foundSpot: bool = false;
+                    if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) { //"no solid infill"
+                        for (0..10) |i| {
+                            _ = i;
+                            cellX += -stepX; //Step the other way for a moment
+                            cellY += -stepY;
+                            cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                            cell = bitmap.data[cellIndex];
+                            if (cell.value & BitmapMask.SHOULD_SOLID_INFILL != 0 and cell.value & BitmapMask.FILLED_IN == 0) {
+                                foundSpot = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        for (0..10) |i| {
+                            _ = i;
+                            cellX += stepX; //Step the other way for a moment
+                            cellY += stepY;
+                            cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                            cell = bitmap.data[cellIndex];
+                            if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) {
+                                cellX += -stepX; //Go back one step
+                                cellY += -stepY;
+                                cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                                cell = bitmap.data[cellIndex];
+                                foundSpot = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!foundSpot) {
+                        //Look the other way
+                        cellX -= 2;
+                        cellY += 2;
+                        cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                        cell = bitmap.data[cellIndex];
+
+                        if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) { //"no solid infill"
+                            for (0..10) |i| {
+                                _ = i;
+                                cellX += -stepX; //Step the other way for a moment
+                                cellY += -stepY;
+                                cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                                cell = bitmap.data[cellIndex];
+                                if (cell.value & BitmapMask.SHOULD_SOLID_INFILL != 0 and cell.value & BitmapMask.FILLED_IN == 0) {
+                                    foundSpot = true;
+                                    break;
+                                }
+                            }
+                        } else {
+                            for (0..10) |i| {
+                                _ = i;
+                                cellX += stepX; //Step the other way for a moment
+                                cellY += stepY;
+                                cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                                cell = bitmap.data[cellIndex];
+                                if (cell.value & BitmapMask.FILLED_IN != 0 or cell.value & BitmapMask.SHOULD_SOLID_INFILL == 0) {
+                                    cellX += -stepX; //Go back one step
+                                    cellY += -stepY;
+                                    cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
+                                    cell = bitmap.data[cellIndex];
+                                    foundSpot = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!foundSpot) {
+                        break;
+                    }
+
+                    stepX = -stepX;
+                    stepY = -stepY;
 
                     if (numSteps < 1) {
                         break;
