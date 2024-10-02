@@ -297,7 +297,7 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                 var cellX: isize = @as(isize, @intCast(xIndex));
                 var cellY: isize = @as(isize, @intCast(yIndex));
                 var stepX: isize = 1;
-                var stepY: isize = 1;
+                var stepY: isize = 0;
                 while (true) {
 
                     const startX: isize = cellX;
@@ -317,13 +317,16 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                         numSteps += 1;
                     }
 
-                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, startX, startY, cellX, cellY, 1.0, 2.0);
+                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, 0b11111111, startX, startY, cellX, cellY, 2.0, 2.0);
 
                     try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
 
+                    const endX: isize = cellX;
+                    const endY: isize = cellY;
+
                     //Move here
-                    cellX += 1;
-                    cellY -= 1;
+                    cellX += 0;
+                    cellY += 2;
                     cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
                     cell = bitmap.data[cellIndex];
 
@@ -360,8 +363,8 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
 
                     if (!foundSpot) {
                         //Look the other way
-                        cellX -= 2;
-                        cellY += 2;
+                        cellX = endX + 0;
+                        cellY = endY - 2;
                         cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
                         cell = bitmap.data[cellIndex];
 
@@ -494,7 +497,9 @@ pub fn main() !void {
                     bitmap.data[index].y = y;
                     bitmap.data[index].value |= BitmapMask.SOLID;
                     if (sdf(.{.x = x, .y = y, .z = z + layerHeight}) > threshold or sdf(.{.x = x, .y = y, .z = z - layerHeight}) > threshold) {
-                        bitmap.data[index].value |= BitmapMask.SHOULD_SOLID_INFILL;
+                        if (layerNum == 40 or layerNum == 59) {
+                            bitmap.data[index].value |= BitmapMask.SHOULD_SOLID_INFILL;
+                        }
                     }
                 }
                 index += 1;
@@ -529,7 +534,7 @@ pub fn main() !void {
                         const xIndex2: usize = minMaxToIndex(point.x, bounds_min.x, bounds_max.x, cellsX);
                         const yIndex2: usize = minMaxToIndex(point.y, bounds_min.y, bounds_max.y, cellsY);
                         //drawLine(bitmap, lastXIndex, lastYIndex, xIndex2, yIndex2);
-                        line.drawThickLine(bitmap, BitmapMask.FILLED_IN, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 3.0, 3.0);
+                        line.drawThickLine(bitmap, BitmapMask.FILLED_IN, 0b11111111 ^ BitmapMask.SHOULD_SOLID_INFILL, uTOi(lastXIndex), uTOi(lastYIndex), uTOi(xIndex2), uTOi(yIndex2), 3.0, 3.0);
                         lastXIndex = xIndex2;
                         lastYIndex = yIndex2;
                     }
