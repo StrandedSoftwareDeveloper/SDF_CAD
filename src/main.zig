@@ -52,16 +52,36 @@ fn hexSdfWrapper(pos: vec.Vector2) f32 {
     return sdfPrimitives.hexagonSdf(pos, 0.1);
 }
 
-fn sdf(pos: vec.Vector3) f32 {
+fn binutSdf(pos: vec.Vector3) f32 {
     const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
-    //const s1: f32 = sdfPrimitives.extrude(pos, boxSdfWrapper, 10.0);
-    //return s1;
-    //const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
+    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
     const s3: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
-    return @max(s3, -s1);
-    //return sdfPrimitives.vertCappedCylinderSdf(pos, 18.0, 9.0);
-    //return sdfPrimitives.sphereSdf(pos, vec.Vector3.zero(), 9.0);
-    //return sdfPrimitives.torusSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.01}, .{.x = 5.0, .y = 2.0});
+    return @max(@max(s3, -s1), -s2);
+}
+
+fn CWnutSdf(pos: vec.Vector3) f32 {
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
+    const s2: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
+    return @max(s2, -s1);
+}
+
+fn CCWnutSdf(pos: vec.Vector3) f32 {
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
+    const s2: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
+    return @max(s2, -s1);
+}
+
+fn boltSdf(pos: vec.Vector3) f32 {
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
+    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
+    return @max(s2, s1);
+}
+
+fn sdf(pos: vec.Vector3) f32 {
+    //return binutSdf(pos);
+    //return CWnutSdf(pos);
+    //return CCWnutSdf(pos);
+    return boltSdf(pos);
 }
 
 //TODO: finish writing this function
@@ -415,6 +435,58 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
     }
 }
 
+fn traceInfill(endPoints: *std.ArrayList(vec.Vector3), startStartPoint: vec.Vector3, spacing: vec.Vector3, direction: vec.Vector3, bounds_min: vec.Vector3, bounds_max: vec.Vector3) !void {
+    var startPoint: vec.Vector3 = startStartPoint;
+    while (startPoint.inBounds(bounds_min, bounds_max)) : (startPoint = startPoint.add(spacing)) {
+        var point: vec.Vector3 = startPoint;
+        var wasInside: bool = false;
+        //std.debug.print(" {d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z});
+        while (point.inBounds(bounds_min, bounds_max)) : (point = point.add(direction)) {
+            if (sdf(point) < 0.0) { //Inside the part
+                if (!wasInside) {
+                    try endPoints.append(findSurfaceOnLine(point.subtract(direction), point, 10));
+                }
+                wasInside = true;
+            } else {
+                if (wasInside) {
+                    try endPoints.append(findSurfaceOnLine(point.subtract(direction), point, 10));
+                }
+                wasInside = false;
+            }
+        }
+    }
+}
+
+pub fn genSparseInfill(allocator: std.mem.Allocator, toolpath: *std.ArrayList(utils.ToolpathEntry), z: f32, offset: vec.Vector3, layerNum: usize, bounds_min: vec.Vector3, bounds_max: vec.Vector3) !void {
+    const spacing: f32 = 5.0;
+
+    //Even indicies are start points and odd ones are end points
+    var endPoints: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
+    defer endPoints.deinit();
+
+    if (layerNum % 2 == 0) {
+        var startPoint: vec.Vector3 = .{.x = bounds_max.x - 0.1, .y = bounds_min.y + 0.1, .z = z};
+        try traceInfill(&endPoints, startPoint, .{.x = -spacing, .y = 0.0, .z = 0.0}, .{.x = 1.0, .y = 1.0, .z = 0.0}, bounds_min, bounds_max);
+
+        startPoint = .{.x = bounds_min.x + 0.1, .y = bounds_min.y + 0.1, .z = z};
+        try traceInfill(&endPoints, startPoint, .{.x = 0.0, .y = spacing, .z = 0.0}, .{.x = 1.0, .y = 1.0, .z = 0.0}, bounds_min, bounds_max);
+    } else {
+        var startPoint: vec.Vector3 = .{.x = bounds_min.x + 0.1, .y = bounds_min.y + 0.1, .z = z};
+        try traceInfill(&endPoints, startPoint, .{.x = spacing, .y = 0.0, .z = 0.0}, .{.x = -1.0, .y = 1.0, .z = 0.0}, bounds_min, bounds_max);
+
+        startPoint = .{.x = bounds_max.x - 0.1, .y = bounds_min.y + 0.1, .z = z};
+        try traceInfill(&endPoints, startPoint, .{.x = 0.0, .y = spacing, .z = 0.0}, .{.x = -1.0, .y = 1.0, .z = 0.0}, bounds_min, bounds_max);
+    }
+
+    for (0..endPoints.items.len) |i| {
+        if (i % 2 == 0) {
+            try toolpath.append(.{.pos = endPoints.items[i].subtract(offset), .travel = true});
+        } else {
+            try toolpath.append(.{.pos = endPoints.items[i].subtract(offset), .travel = false});
+        }
+    }
+}
+
 pub fn main() !void {
     const lowResolution: f32 = 0.1; //The resolution used for things like finding out approximately where an edge is
     const layerHeight: f32 = 0.2; //Layer height in mm
@@ -497,9 +569,7 @@ pub fn main() !void {
                     bitmap.data[index].y = y;
                     bitmap.data[index].value |= BitmapMask.SOLID;
                     if (sdf(.{.x = x, .y = y, .z = z + layerHeight}) > threshold or sdf(.{.x = x, .y = y, .z = z - layerHeight}) > threshold) {
-                        if (layerNum == 40 or layerNum == 59) {
                             bitmap.data[index].value |= BitmapMask.SHOULD_SOLID_INFILL;
-                        }
                     }
                 }
                 index += 1;
@@ -527,7 +597,7 @@ pub fn main() !void {
                     var i: usize = 0;
                     var lastXIndex: usize = minMaxToIndex(startPoint.x, bounds_min.x, bounds_max.x, cellsX);
                     var lastYIndex: usize = minMaxToIndex(startPoint.y, bounds_min.y, bounds_max.y, cellsY);
-                    while ((startPoint.subtract(point).length() > 0.3 or i < 5) and i < 10000) : (i += 1) {
+                    while ((startPoint.subtract(point).length() > 0.4 or i < 5) and i < 10000) : (i += 1) {
                         point = findDirection(point);
                         try toolpath.append(.{.pos = point.subtract(offset), .travel = false});
                         //std.debug.print("Point: {d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z});
@@ -556,7 +626,11 @@ pub fn main() !void {
             }
         }
 
-        try genSolidInfill(bitmap, &toolpath, z, offset);
+        if (layerNum == 40 or layerNum == 59) {
+            try genSolidInfill(bitmap, &toolpath, z, offset);
+        } else {
+            try genSparseInfill(allocator, &toolpath, z, offset, layerNum, bounds_min, bounds_max);
+        }
         try toolpathToGcode(toolpath.items, stdout);
         toolpath.shrinkRetainingCapacity(0);
 

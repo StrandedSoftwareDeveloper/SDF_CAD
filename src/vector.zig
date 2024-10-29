@@ -52,6 +52,10 @@ pub const Vector3 = struct {
     pub fn abs(self: Vector3) Vector3 {
         return .{.x = @abs(self.x), .y = @abs(self.y), .z = @abs(self.z)};
     }
+
+    pub fn inBounds(self: Vector3, boundsMin: Vector3, boundsMax: Vector3) bool {
+        return (self.x > boundsMin.x and self.y > boundsMin.y and self.z > boundsMin.z) and (self.x < boundsMax.x and self.y < boundsMax.y and self.z < boundsMax.z);
+    }
 };
 
 pub const Vector2 = struct {
