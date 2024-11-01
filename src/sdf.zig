@@ -55,6 +55,18 @@ pub fn boxSdf(pos: vec.Vector2, b: vec.Vector2) f32 {
     return vec.Vector2.length(vec.Vector2.max(d, .{ .x = 0.0, .y = 0.0 })) + (@min(@max(d.x, d.y), 0.0));
 }
 
+pub fn boxSdf3D(pos: vec.Vector3, b: vec.Vector3) f32 {
+    const q: vec.Vector3 = pos.abs().subtract(b);
+    return vec.Vector3.length(vec.Vector3.max(q, vec.Vector3.zero())) + @min(@max(q.x, @max(q.y, q.z)), 0.0);
+}
+
+pub fn crossSdf(pos: vec.Vector3) f32 {
+    const da = boxSdf(.{.x = pos.x, .y = pos.y}, .{.x = 1.0, .y = 1.0});
+    const db = boxSdf(.{.x = pos.y, .y = pos.z}, .{.x = 1.0, .y = 1.0});
+    const dc = boxSdf(.{.x = pos.z, .y = pos.x}, .{.x = 1.0, .y = 1.0});
+    return @min(da, @min(db, dc));
+}
+
 pub fn starSdf(pos: vec.Vector2, r: f32, n: usize, m: f32) f32 {
     // next 4 lines can be precomputed for a given shape
     const an: f32 = 3.141593 / @as(f32, @floatFromInt(n));

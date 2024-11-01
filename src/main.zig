@@ -41,7 +41,11 @@ fn indexToMinMax(v: usize, min: f32, max: f32, indexMax: usize) f32 {
 }
 
 fn starSdfWrapper(pos: vec.Vector2) f32 {
-    return sdfPrimitives.starSdf(pos, 10.0, 8, 3.0);
+    return sdfPrimitives.starSdf(pos, 9.8, 8, 3.0);
+}
+
+fn starSdfWrapperNut(pos: vec.Vector2) f32 {
+    return sdfPrimitives.starSdf(pos, 11.5, 8, 3.0);
 }
 
 fn boxSdfWrapper(pos: vec.Vector2) f32 {
@@ -52,22 +56,25 @@ fn hexSdfWrapper(pos: vec.Vector2) f32 {
     return sdfPrimitives.hexagonSdf(pos, 0.1);
 }
 
-fn binutSdf(pos: vec.Vector3) f32 {
-    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
-    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
-    const s3: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
+fn binutSdf(pos: vec.Vector3) f32 { //0.17
+    const p: vec.Vector3 = pos.subtract(.{.x = 0.0, .y = 0.01, .z = -0.02});
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapperNut, 10.0, -180.0);
+    const s2: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapperNut, 10.0, 180.0);
+    const s3: f32 = sdfPrimitives.hexPrismSdf(p, .{.x = 12.0, .y = 2.0});
     return @max(@max(s3, -s1), -s2);
 }
 
 fn CWnutSdf(pos: vec.Vector3) f32 {
-    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, 180.0);
-    const s2: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
+    const p: vec.Vector3 = pos.subtract(.{.x = 0.0, .y = 0.01, .z = -0.05});
+    const s1: f32 = sdfPrimitives.extrudeTwist(p, starSdfWrapperNut, 10.0, 180.0);
+    const s2: f32 = sdfPrimitives.hexPrismSdf(p, .{.x = 12.0, .y = 2.0});
     return @max(s2, -s1);
 }
 
 fn CCWnutSdf(pos: vec.Vector3) f32 {
-    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapper, 10.0, -180.0);
-    const s2: f32 = sdfPrimitives.hexPrismSdf(.{.x = pos.x, .y = pos.y, .z = pos.z + 0.1}, .{.x = 12.0, .y = 2.0});
+    const p: vec.Vector3 = pos.subtract(.{.x = 0.0, .y = 0.01, .z = -0.05});
+    const s1: f32 = sdfPrimitives.extrudeTwist(pos, starSdfWrapperNut, 10.0, -180.0);
+    const s2: f32 = sdfPrimitives.hexPrismSdf(p, .{.x = 12.0, .y = 2.0});
     return @max(s2, -s1);
 }
 
@@ -79,11 +86,33 @@ fn boltSdf(pos: vec.Vector3) f32 {
     return @max(s2, s1);
 }
 
+fn mengerSponge(pos: vec.Vector3) f32 {
+    var d: f32 = sdfPrimitives.boxSdf3D(pos, .{.x = 1.0, .y = 1.0, .z = 1.0});
+    var s: f32 = 1.0;
+    for (0..5) |m| {
+        _ = m;
+
+        const a: vec.Vector3 = vec.Vector3.mod(pos.multScalar(s), 2.0).subtract(vec.Vector3.fromScalar(1.0));
+        s *= 3.0;
+        const r: vec.Vector3 = vec.Vector3.subtract(vec.Vector3.fromScalar(1.0), a.abs().multScalar(3.0));
+
+        const c: f32 = sdfPrimitives.crossSdf(r) / s;
+        d = @max(d, c);
+    }
+    return d;
+}
+
 fn sdf(pos: vec.Vector3) f32 {
     //return binutSdf(pos);
     //return CWnutSdf(pos);
     //return CCWnutSdf(pos);
-    return boltSdf(pos);
+
+    //return boltSdf(pos);
+
+    const p2D: vec.Vector2 = vec.Vector2.rotate(.{.x = pos.x, .y = pos.y}, std.math.degreesToRadians(45.0));
+    const p: vec.Vector3 = .{.x = p2D.x, .y = p2D.y, .z = pos.z - 0.1};
+
+    return mengerSponge(p.multScalar(0.1));
 }
 
 //TODO: finish writing this function
@@ -223,35 +252,56 @@ fn optimizeToolpath(toolpath: []utils.ToolpathEntry) usize {
     return outIndex; //Return size
 }
 
-fn toolpathToGcode(toolpath: []utils.ToolpathEntry, layerHeight: f32, writer: anytype) !void {
+fn toolpathToGcode(toolpath: []utils.ToolpathEntry, layerNum: usize, layerHeight: f32, writer: anytype) !void {
+    var layerThickness: f32 = layerHeight;
     if (toolpath.len == 0) {
         return;
     }
-    const extrusionFactor: f32 = 0.25*layerHeight;
+    if (layerNum == 0) {
+        layerThickness *= 1.5;
+    }
+    const extrusionFactor: f32 = 0.15*layerThickness;
     var firstNonTravel: bool = true;
+    var wasTravel: bool = false;
     var prevPoint: vec.Vector3 = toolpath[0].pos;
     for (toolpath) |point| {
         if (point.travel) {
-            try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200\n", .{point.pos.x, point.pos.y, point.pos.z});
+            if (!wasTravel) {
+                try writer.print("G1 Z{d:.2} F1200 E-1\n", .{point.pos.z + 0.1});
+            }
+            try writer.print("G0 X{d:.2} Y{d:.2} Z{d:.2} F1200\n", .{point.pos.x, point.pos.y, point.pos.z + 0.1});
+
+            wasTravel = true;
         } else {
-            if (firstNonTravel) {
-                try writer.print("G1 E0.6\n", .{}); //"compensate for the inexplicable but consistent under-extrusion" -DrLex
+            if (firstNonTravel and layerNum == 0) {
+                try writer.print("G1 E0.5\n", .{}); //"compensate for the inexplicable but consistent under-extrusion" -DrLex
                 firstNonTravel = false;
             }
+
+            if (wasTravel) {
+                try writer.print("G1 Z{d:.2} F1200 E1\n", .{prevPoint.z});
+            }
+
             const extrudeAmount: f32 = point.pos.subtract(prevPoint).length() * extrusionFactor;
-            try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E{d:.2}\n", .{point.pos.x, point.pos.y, point.pos.z, extrudeAmount});
+            try writer.print("G1 X{d:.2} Y{d:.2} Z{d:.2} F1200 E{d:.4}\n", .{point.pos.x, point.pos.y, point.pos.z, extrudeAmount});
+
+            wasTravel = false;
         }
         prevPoint = point.pos;
     }
 }
 
-fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !void {
+fn addInnerWall(toolpath: *std.ArrayList(utils.ToolpathEntry), offset: vec.Vector3) !void {
     const origLen: usize = toolpath.items.len-1;
     for (0..origLen) |i| {
+        if (toolpath.items[i].travel) {
+            continue;
+        }
+
         const index: isize = @intCast(i);
-        const point: vec.Vector3 = toolpath.items[i];
-        const prevPoint: vec.Vector3 = toolpath.items[@intCast(try std.math.mod(isize, index-1, @intCast(origLen)))];
-        const nextPoint: vec.Vector3 = toolpath.items[@intCast(try std.math.mod(isize, index+1, @intCast(origLen)))];
+        const point: vec.Vector3 = toolpath.items[i].pos;
+        const prevPoint: vec.Vector3 = toolpath.items[@intCast(try std.math.mod(isize, index-1, @intCast(origLen)))].pos;
+        const nextPoint: vec.Vector3 = toolpath.items[@intCast(try std.math.mod(isize, index+1, @intCast(origLen)))].pos;
         const v03D: vec.Vector3 = prevPoint.subtract(point);
         const v13D: vec.Vector3 = nextPoint.subtract(point);
         const v02D: vec.Vector2 = .{.x = v03D.x, .y = v03D.y};
@@ -270,7 +320,7 @@ fn addInnerWall(toolpath: *std.ArrayList(vec.Vector3), offset: vec.Vector3) !voi
         if (sdf(v.add(offset)) > 0.0) {
             //std.debug.print("AAAAAAAAA {d:.2} {d:.2} {d:.2}\n", .{sdf(point.subtract(offset)), sdf(v), sdf(.{.x = v1.x + point.x, .y = v1.y + point.y, .z = point.z})});
         }
-        try toolpath.append(v);
+        try toolpath.append(.{.pos = v, .travel = false});
     }
 }
 
@@ -344,7 +394,7 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
                         numSteps += 1;
                     }
 
-                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, 0b11111111, startX, startY, cellX, cellY, 2.0, 2.0);
+                    line.drawThickLine(bitmap, BitmapMask.FILLED_IN, 0b11111111, startX, startY, cellX, cellY, 4.0, 4.0);
 
                     try toolpath.append(.{.pos = vec.Vector3.subtract(.{.x = cell.x, .y = cell.y, .z = z}, offset), .travel = false});
 
@@ -353,7 +403,7 @@ pub fn genSolidInfill(bitmap: utils.Bitmap, toolpath: *std.ArrayList(utils.Toolp
 
                     //Move here
                     cellX += 0;
-                    cellY += 2;
+                    cellY += 4;
                     cellIndex = @as(usize, @intCast(cellY*@as(isize, @intCast(bitmap.width))+cellX));
                     cell = bitmap.data[cellIndex];
 
@@ -496,7 +546,7 @@ pub fn genSparseInfill(allocator: std.mem.Allocator, toolpath: *std.ArrayList(ut
 
 pub fn main() !void {
     const lowResolution: f32 = 0.1; //The resolution used for things like finding out approximately where an edge is
-    const layerHeight: f32 = 0.1; //Layer height in mm
+    const layerHeight: f32 = 0.2; //Layer height in mm
     const bounds_min: vec.Vector3 = .{ .x = -15.0, .y = -15.0, .z = -20.0 };
     const bounds_max: vec.Vector3 = .{ .x = 15.0, .y = 15.0, .z = 20.0 };
     const threshold: f32 = 0.0;
@@ -618,12 +668,12 @@ pub fn main() !void {
 
                     try toolpath.append(.{.pos = firstPoint.subtract(offset), .travel = false});
 
-                    const newSize: usize = optimizeToolpath(toolpath.items);
-                    toolpath.shrinkRetainingCapacity(newSize);
+                    //const newSize: usize = optimizeToolpath(toolpath.items);
+                    //toolpath.shrinkRetainingCapacity(newSize);
 
                     //try addInnerWall(&toolpath, offset);
 
-                    try toolpathToGcode(toolpath.items, layerHeight, stdout);
+                    try toolpathToGcode(toolpath.items, layerNum-firstLayer, layerHeight, stdout);
                     toolpath.shrinkRetainingCapacity(0);
 
                     //break :yLoop;
@@ -633,17 +683,18 @@ pub fn main() !void {
             }
         }
 
-        if (layerNum == 40 or layerNum == 59) {
-            try genSolidInfill(bitmap, &toolpath, z, offset);
+        try genSolidInfill(bitmap, &toolpath, z, offset);
+        if (layerNum == 1500 or layerNum == 3400) {
+
         } else {
             //try genSparseInfill(allocator, &toolpath, z, offset, layerNum, bounds_min, bounds_max);
         }
-        try toolpathToGcode(toolpath.items, layerHeight, stdout);
+        try toolpathToGcode(toolpath.items, layerNum-firstLayer, layerHeight, stdout);
         toolpath.shrinkRetainingCapacity(0);
 
         //try dumpImage("out2.ppm", bitmap);
         if (layerNum == 59) {
-            try dumpImage("out2.ppm", bitmap);
+            //try dumpImage("out2.ppm", bitmap);
             //return;
         }
 

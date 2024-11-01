@@ -21,8 +21,8 @@ pub const Vector3 = struct {
         return self.x * self.x + self.y * self.y + self.z * self.z;
     }
 
-    pub fn lerp(min: Vector3, max: Vector3, k: Vector3) Vector3 {
-        return .{ .x = std.math.lerp(min.x, max.x, k.x), .y = std.math.lerp(min.y, max.y, k.y), .z = std.math.lerp(min.z, max.z, k.z) };
+    pub fn lerp(minimum: Vector3, maximum: Vector3, k: Vector3) Vector3 {
+        return .{ .x = std.math.lerp(minimum.x, maximum.x, k.x), .y = std.math.lerp(minimum.y, maximum.y, k.y), .z = std.math.lerp(minimum.z, maximum.z, k.z) };
     }
 
     pub fn divideScalar(self: Vector3, scalar: f32) Vector3 {
@@ -55,6 +55,18 @@ pub const Vector3 = struct {
 
     pub fn inBounds(self: Vector3, boundsMin: Vector3, boundsMax: Vector3) bool {
         return (self.x > boundsMin.x and self.y > boundsMin.y and self.z > boundsMin.z) and (self.x < boundsMax.x and self.y < boundsMax.y and self.z < boundsMax.z);
+    }
+
+    pub fn max(a: Vector3, b: Vector3) Vector3 {
+        return .{ .x = @max(a.x, b.x), .y = @max(a.y, b.y), .z = @max(a.z, b.z) };
+    }
+
+    pub fn multScalar(a: Vector3, b: f32) Vector3 {
+        return .{ .x = a.x*b, .y = a.y*b, .z = a.z*b };
+    }
+
+    pub fn mod(a: Vector3, b: f32) Vector3 {
+        return .{ .x = @mod(a.x, b), .y = @mod(a.y, b), .z = @mod(a.z, b) };
     }
 };
 
@@ -102,7 +114,7 @@ pub const Vector2 = struct {
         return std.math.atan2(self.y, self.x);
     }
 
-    pub fn rotate(self: *const Vector2, angle: f32) Vector2 {
+    pub fn rotate(self: Vector2, angle: f32) Vector2 {
         const startAngle: f32 = self.getAngle();
         const len: f32 = self.length();
         return .{ .x = std.math.cos(startAngle + angle) * len, .y = std.math.sin(startAngle + angle) * len };
