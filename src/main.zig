@@ -6,26 +6,26 @@ const std = @import("std");
 const vec = @import("vector.zig");
 const sdfUtils = @import("sdf.zig");
 
-fn writeVertex(writer: anytype, vertex: vec.Vector3) !void {
+fn writeVertex(writer: *std.Io.Writer, vertex: vec.Vector3) !void {
     _ = try writer.write(&std.mem.toBytes(vertex.x));
     _ = try writer.write(&std.mem.toBytes(vertex.y));
     _ = try writer.write(&std.mem.toBytes(vertex.z));
 }
 
-fn writeSTL(writer: anytype, vertices: []const vec.Vector3) !void {
-    try writer.writeByteNTimes(0, 80); //Write STL header
+fn writeSTL(writer: *std.Io.Writer, vertices: []const vec.Vector3) !void {
+    _ = try writer.write(&[_]u8{0} ** 80); //Write STL header
     try writer.writeInt(u32, @intCast(vertices.len / 3), .little); //Write number of triangles (each triangle is 3 vertices)
-
+    
     var i: usize = 0;
     while (i < vertices.len) {
-        try writer.writeByteNTimes(0, 4 * 3); //Write normal
+        _ = try writer.write(&[_]u8{0} ** (4*3)); //Write normal
         try writeVertex(writer, vertices[i]);
         i += 1;
         try writeVertex(writer, vertices[i]);
         i += 1;
         try writeVertex(writer, vertices[i]);
         i += 1;
-        try writer.writeByteNTimes(0, 2); //Write attributes
+        _ = try writer.write(&[_]u8{0} ** 2); //Write attributes
     }
 }
 
@@ -34,7 +34,7 @@ fn findSurface(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3) 
     const epsilon: f32 = 0.01;
     for (0..100) |i| {
         _ = i;
-
+        
         const grad: vec.Vector3 = sdfUtils.gradient(point, sdfFunc);
         point = point.add(grad.multScalar(sdfFunc(point)));
         if (@abs(sdfFunc(point)) < epsilon) {
@@ -44,14 +44,14 @@ fn findSurface(startPoint: vec.Vector3, comptime sdfFunc: fn (pos: vec.Vector3) 
     return point;
 }
 
-fn initialTriangulation(seedPoint: vec.Vector3, front: *std.ArrayList(vec.Vector3)) !void {
+fn initialTriangulation(allocator: std.mem.Allocator, seedPoint: vec.Vector3, front: *std.ArrayList(vec.Vector3)) !void {
     const normal: vec.Vector3 = sdfUtils.calcNormal(seedPoint, sdf);
     const tangent: vec.Vector3 = sdfUtils.calcTangent(normal).multScalar(0.1);
     const bitangent: vec.Vector3 = sdfUtils.calcBitangent(normal, tangent).multScalar(0.1);
-
-    try front.append(seedPoint);
-    try front.append(findSurface(seedPoint.add(tangent), sdf));
-    try front.append(findSurface(seedPoint.add(bitangent), sdf));
+    
+    try front.append(allocator, seedPoint);
+    try front.append(allocator, findSurface(seedPoint.add(tangent), sdf));
+    try front.append(allocator, findSurface(seedPoint.add(bitangent), sdf));
 }
 
 fn pushFront() !void {}
@@ -70,73 +70,74 @@ fn sdf(pos: vec.Vector3) f32 {
 pub fn main() !void {
     const threshold: f32 = 0.0;
     _ = threshold;
-
+    
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator: std.mem.Allocator = gpa.allocator();
-
-    var verts: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
-    defer verts.deinit();
-
+    
+    var verts: std.ArrayList(vec.Vector3) = try std.ArrayList(vec.Vector3).initCapacity(allocator, 256);
+    defer verts.deinit(allocator);
+    
     //Stack of fronts, where each front is an array of vertices
-    var fronts: std.ArrayList(std.ArrayList(vec.Vector3)) = std.ArrayList(std.ArrayList(vec.Vector3)).init(allocator);
-    defer fronts.deinit(); //Note: the internal arrays are garunteed to be deinitialized in the main array
-
+    var fronts: std.ArrayList(std.ArrayList(vec.Vector3)) = try std.ArrayList(std.ArrayList(vec.Vector3)).initCapacity(allocator, 256);
+    defer fronts.deinit(allocator); //Note: the internal arrays are garunteed to be deinitialized in the main array
+    
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
+    
     // stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    var pcg = std.rand.Pcg.init(10);
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    
+    var pcg = std.Random.Pcg.init(10);
     const rng = pcg.random();
-
-    var initialFront: std.ArrayList(vec.Vector3) = std.ArrayList(vec.Vector3).init(allocator);
+    
+    var initialFront: std.ArrayList(vec.Vector3) = try std.ArrayList(vec.Vector3).initCapacity(allocator, 256);
     var startPoint: vec.Vector3 = .{ .x = 0.0, .y = 0.0, .z = 0.0 };
     var seedPoint: vec.Vector3 = findSurface(startPoint, sdf);
-    try initialTriangulation(seedPoint, &initialFront);
-    try fronts.append(initialFront);
-
+    try initialTriangulation(allocator, seedPoint, &initialFront);
+    try fronts.append(allocator, initialFront);
+    
     while (fronts.items.len > 0) {
-        const currentFront: std.ArrayList(vec.Vector3) = fronts.pop();
-
+        var currentFront: std.ArrayList(vec.Vector3) = fronts.pop().?;
+        
         while (currentFront.items.len > 3) {
-            actualizeAngles(currentFront);
-            const pt: vec.Vector3 = pointWithMinAngle(currentFront);
-            const ptI: vec.Vector3 = selfIntersection(pt, currentFront);
+            break;
+            //actualizeAngles(currentFront);
+            //const pt: vec.Vector3 = pointWithMinAngle(currentFront);
+            //const ptI: vec.Vector3 = selfIntersection(pt, currentFront);
         }
-
+        
         for (currentFront.items) |vert| { //Move the last few verts into the main array
-            try verts.append(vert);
+            try verts.append(allocator, vert);
         }
-        defer currentFront.deinit();
+        defer currentFront.deinit(allocator);
     }
-
+    
     for (0..10000) |i| {
         _ = i;
-
+        
         startPoint = .{ .x = rng.float(f32) * 2.0 - 1.0, .y = rng.float(f32) * 2.0 - 1.0, .z = rng.float(f32) * 2.0 - 1.0 };
         seedPoint = findSurface(startPoint, sdf);
         if (seedPoint.z > 0.0) {
             //continue;
         }
-
+        
         const NTB: vec.Mat3 = sdfUtils.calcNTB(seedPoint, sdf);
-
-        try verts.append(seedPoint);
-        try verts.append(findSurface(seedPoint.add(NTB.r1.multScalar(0.2)), sdf));
-        try verts.append(findSurface(seedPoint.add(NTB.r2.multScalar(0.2)), sdf));
-
+        
+        try verts.append(allocator, seedPoint);
+        try verts.append(allocator, findSurface(seedPoint.add(NTB.r1.multScalar(0.2)), sdf));
+        try verts.append(allocator, findSurface(seedPoint.add(NTB.r2.multScalar(0.2)), sdf));
+        
         std.debug.print("{d:.3}, {d:.3}, {d:.3}: {d:.3}\n", .{ seedPoint.x, seedPoint.y, seedPoint.z, sdf(seedPoint) });
     }
-
+    
     try writeSTL(stdout, verts.items);
-
-    try bw.flush(); // don't forget to flush!
+    
+    try stdout.flush();
 }
 
 test "simple test" {
